@@ -222,3 +222,10 @@ Dataset/BOARD*_*/
 # Model checkpoints
 *.pt
 *.pth
+
+# Ignore mistaken scripts
+Dataset/CNN1.py
+Dataset/CNN2.py
+# Ignore mistaken scripts
+Dataset/CNN1.py
+Dataset/CNN2.py
