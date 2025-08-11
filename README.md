@@ -11,11 +11,12 @@ Base 모델은 TorchVision의 **ResNet18**을 사용하고, Stratified K-Fold로
 ## Features
 - ResNet18(Pretrained) 기반 이진 분류
 - Stratified K-Fold Cross Validation (n_splits=5)
-- GridSearch 결과(`Dataset/ParameterSettings.txt`) 재사용
-- Fold별 best 모델 저장(최고 AUC, 동률 시 Accuracy 우선)
-- 전체 ROC/Confusion Matrix/Accuracy 저장
-- 학습 로그 및 진행바(tqdm)
-- 전처리 스크립트로 원본 폴더(예: `BOARD4_0.124`)에서 자동 크롭 → `Dataset/Output/` 생성
+- GridSearch 결과값을 (`Dataset/ParameterSettings.txt`)로 export하고 학습에 활용
+- Fold별 best 모델 ~.pt 파일로 저장(최고 AUC에 따라 갱신하여 저장, 동률 시 Accuracy 기반 우선반영)
+- 전체 ROC/Confusion Matrix/Accuracy 결과 이미지 저장
+- 학습 로그 visualization 개선 (tqdm library 활용)
+- 이미지 원본 폴더(예: `BOARD4_0.124`)에서 cropcode.py를 통해 전처리 → `Dataset/Output/` 생성)
+- checkpoint pt 모델을 통해 Inputdata 이미지에서 defect여부를 추론 (inference.py)
 
 ## Hardware Specification
 - Render hardware : ASUS G14 (2021) R9 5900HS, RTX3050Ti(Cuda yes)
@@ -65,7 +66,8 @@ pip install torch torchvision torchaudio
 ---
 
 ## 전처리(Preprocessing)
-1) `Dataset/` 아래에 원본 폴더를 배치합니다. 예: `Dataset/BOARD4_0.124/` 내부에 PNG 이미지들  
+1) `Dataset/` 아래에 원본 폴더를 배치합니다. 예: `Dataset/BOARD4_0.124/` 내부에 PNG 이미지들을 위치합니다. format형식은 다음과 같습니다. BOARD4 -> 4번 PCB , _0.124 -> OpenPnP에서 fiducial mark offseting 이후 표기되는 Board Rotation 값 입력 (이미지가 회전되어 캡쳐되기 때문에 회전값을 정의해야함)
+  
 2) 전처리 실행:
 ```bash
 python cropcode.py
