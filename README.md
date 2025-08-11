@@ -1,4 +1,4 @@
-```md
+
 # SMT_Machine_InspectionCNN
 
 SMT(표면실장) 머신에서 촬영한 PCB 납땜부 이미지를 이용해 **정상/불량(2-class)** 를 분류하는 CNN 프로젝트입니다.  
@@ -31,7 +31,7 @@ Dataset/
 CNN.py                      # 학습(교차검증) 스크립트
 inferencecode.py            # 추론 스크립트
 cropcode.py                 # 원본 폴더 일괄 전처리(회전/센터크롭)
-```
+
 
 > 원본 보드 폴더(`Dataset/BOARD*_*/`)는 `.gitignore`로 무시됩니다.
 
