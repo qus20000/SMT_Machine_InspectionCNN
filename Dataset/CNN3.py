@@ -120,7 +120,7 @@ else:
 # =========================
 # 학습 시작
 # =========================
-print("🔧 Stratified K-Fold 학습 시작")
+print(" Stratified K-Fold 학습 시작")
 skf = StratifiedKFold(n_splits=num_folds, shuffle=True, random_state=42)
 
 all_true = []
@@ -129,7 +129,7 @@ best_overall_auc = 0.0
 final_best_model_path = os.path.join(global_log_root, "best_model.pt")
 
 for fold, (train_idx, val_idx) in enumerate(skf.split(df["ImageName"], df["Defect"])):
-    print(f"\n🧩 Fold {fold+1}/{num_folds} 시작")
+    print(f"\n Fold {fold+1}/{num_folds} 시작")
     log_dir = os.path.join(global_log_root, f"fold_{fold+1}")
     os.makedirs(log_dir, exist_ok=True)
 
@@ -199,7 +199,7 @@ for fold, (train_idx, val_idx) in enumerate(skf.split(df["ImageName"], df["Defec
         if auc > best_overall_auc:
             best_overall_auc = auc
             torch.save(model.state_dict(), final_best_model_path)
-            print(f"    ✅ 최종 최고 AUC 갱신 ▶ {final_best_model_path}")
+            print(f"    최종 최고 AUC 갱신 ▶ {final_best_model_path}")
 
     all_true.extend(fold_true)
     all_probs.extend(fold_probs)
@@ -207,7 +207,7 @@ for fold, (train_idx, val_idx) in enumerate(skf.split(df["ImageName"], df["Defec
 # =========================
 # 전체 결과 저장
 # =========================
-print("\n📊 전체 결과 저장 중...")
+print("\n 전체 결과 저장 중...")
 global_auc = roc_auc_score(all_true, all_probs)
 global_acc = accuracy_score(all_true, [1 if p > 0.5 else 0 for p in all_probs])
 global_cm = confusion_matrix(all_true, [1 if p > 0.5 else 0 for p in all_probs])
@@ -235,5 +235,5 @@ for i in range(2):
 plt.tight_layout()
 plt.savefig(os.path.join(global_log_root, "overall_confusion_matrix.png"))
 
-print(f"\n✅ 전체 최종 결과 저장 완료: {global_log_root}")
-print(f"✅ 최종 모델 저장 위치: {final_best_model_path}")
+print(f"\n 전체 최종 결과 저장 완료: {global_log_root}")
+print(f" 최종 모델 저장 위치: {final_best_model_path}")
