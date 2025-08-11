@@ -217,6 +217,7 @@ Dataset/Output_Hue/
 Dataset/Inputdata/
 Dataset/inference_output_*/
 Dataset/best_model.pt
+Dataset/BOARD*_*/
 
 # Model checkpoints
 *.pt
