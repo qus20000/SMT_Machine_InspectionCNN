@@ -4,7 +4,7 @@
 SMT(표면실장) 머신에서 촬영한 PCB 납땜부 이미지를 이용해 **정상/불량(2-class)** 를 분류하는 CNN 프로젝트입니다.  
 Base 모델은 TorchVision의 **ResNet18**을 사용하고, Stratified K-Fold로 성능을 검증하며 AUC/Accuracy/Confusion Matrix/ROC 등을 저장합니다.
 
-> 참고: 학습에 사용한 **이미지 데이터는 비공개**입니다. (OpenPnP로 캡처한 PNG 이미지, USB 카메라 + 6mm 렌즈)
+> 참고: 학습에 사용한 **이미지 데이터는 비공개**입니다. 
 
 ---
 
@@ -17,6 +17,15 @@ Base 모델은 TorchVision의 **ResNet18**을 사용하고, Stratified K-Fold로
 - 학습 로그 및 진행바(tqdm)
 - 전처리 스크립트로 원본 폴더(예: `BOARD4_0.124`)에서 자동 크롭 → `Dataset/Output/` 생성
 
+## Hardware Specification
+- Render hardware : ASUS G14 (2021) R9 5900HS, RTX3050Ti(Cuda yes)
+
+- SMT Machine Hardware : Opulo based SMT Machine
+  - Mainboard : BTT Octopus V1.1 (STM32F446)
+  - TOP Camera : SC200AI 2MP sensor with '6mm' lens USB Camera
+  - BOTTOM Camera : SC200AI 2MP sensor with '3mm' lens USB Camera
+  - Toolhead : SMT Mountor 28mm Nema 11 cp40 holder with N08 nozzle
+
 ---
 
 ## Directory
@@ -28,7 +37,7 @@ Dataset/
  ├─ DefectLabel.xlsx        # 라벨 파일 (ImageName, Defect)
  └─ ParameterSettings.txt   # JSON(배치/러닝레이트/옵티마이저)
 
-CNN.py                      # 학습(교차검증) 스크립트
+CNN3.py                      # 학습(with 교차검증) 스크립트
 inferencecode.py            # 추론 스크립트
 cropcode.py                 # 원본 폴더 일괄 전처리(회전/센터크롭)
 ```
@@ -36,8 +45,10 @@ cropcode.py                 # 원본 폴더 일괄 전처리(회전/센터크롭
 ---
 
 ## Requirements
-- Python 3.10.x 권장
+- Python 3.10.x 권장 (3.10.11 사용)
 
+
+코드 실행 전 준비사항 ( venv 환경 추천 )
 ```bash
 # CUDA 사용 시(예: CUDA 12.1 휠)
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
@@ -46,10 +57,10 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 pip install opencv-python pandas matplotlib scikit-learn tqdm openpyxl
 ```
 
-> CPU만 사용하는 경우에는 아래만 설치해도 됩니다.
+> CPU만 사용하는 경우에는 아래만 설치
 ```bash
 pip install torch torchvision torchaudio
-
+```
 
 ---
 
