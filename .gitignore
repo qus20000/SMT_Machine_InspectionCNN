@@ -205,3 +205,19 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+##################################################### project setting
+# Logs
+log_*/
+*.log
+
+# Dataset outputs (대용량/자동생성)
+Dataset/Output/
+Dataset/Output_Hue/
+Dataset/Inputdata/
+Dataset/inference_output_*/
+Dataset/best_model.pt
+
+# Model checkpoints
+*.pt
+*.pth
