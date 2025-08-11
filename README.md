@@ -31,9 +31,7 @@ Dataset/
 CNN.py                      # 학습(교차검증) 스크립트
 inferencecode.py            # 추론 스크립트
 cropcode.py                 # 원본 폴더 일괄 전처리(회전/센터크롭)
-
-
-> 원본 보드 폴더(`Dataset/BOARD*_*/`)는 `.gitignore`로 무시됩니다.
+```
 
 ---
 
@@ -51,7 +49,7 @@ pip install opencv-python pandas matplotlib scikit-learn tqdm openpyxl
 > CPU만 사용하는 경우에는 아래만 설치해도 됩니다.
 ```bash
 pip install torch torchvision torchaudio
-```
+
 
 ---
 
