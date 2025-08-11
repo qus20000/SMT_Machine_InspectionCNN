@@ -66,4 +66,4 @@ result_df = pd.DataFrame(predictions)
 result_path = os.path.join(output_dir, "PredictionResults.xlsx")
 result_df.to_excel(result_path, index=False)
 
-print(f"✅ 추론 완료. 결과 저장됨: {result_path}")
+print(f"추론 완료. 결과 저장됨: {result_path}")
