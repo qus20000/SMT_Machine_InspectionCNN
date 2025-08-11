@@ -124,3 +124,4 @@ python inferencecode.py
 - `./Dataset/inference_output_YYYYMMDD_HHMMSS/PredictionResults.xlsx`  
   - 컬럼: `ImageName`, `DefectProb`(불량 확률), `PredictedLabel`(0/1)
 
+결과에서 DefectProb Threshold에 따른 PredictedLabel이 정해집니다. 해당 값 변경이 필요한 경우, inferencecode.py 에서 # 이미지 추론 구문의  "pred = 1 if prob > 0.5 else 0" 값을 조절하세요.
