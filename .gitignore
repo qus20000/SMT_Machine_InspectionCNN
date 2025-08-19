@@ -211,16 +211,25 @@ __marimo__/
 log_*/
 *.log
 
-# Dataset outputs (대용량/자동생성)
-Dataset/Output/
-Dataset/Output_Hue/
+# Dataset outputs
+Dataset/Output*/
+Dataset/Output [0-9]*/
+Dataset/Output ([0-9]*)/
+Dataset/Output_Hue*/
+Dataset/Output_Hue [0-9]*/
+Dataset/Output_Hue ([0-9]*)/
 Dataset/Inputdata/
 Dataset/inference_output_*/
 Dataset/best_model.pt
 Dataset/BOARD*_*/
 Dataset/새폴더*/
-*.xlsx
+Dataset/DefectLabelBOARD6_DEFECTTEST.xlsx
+Dataset/새폴더 (*)
+Dataset/새폴더 [0-9]*/
+Dataset/새폴더 ([0-9]*)/
 
+*.xlsx
+Dataset/Imageset/
 
 # Model checkpoints
 *.pt

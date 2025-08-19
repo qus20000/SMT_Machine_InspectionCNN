@@ -99,8 +99,8 @@ from tqdm import tqdm
 # 기본 설정
 # =========================
 dataset_root = "./Dataset"
-output_folder = os.path.join(dataset_root, "Output")
-label_path = os.path.join(dataset_root, "DefectLabel.xlsx")
+output_folder = os.path.join(dataset_root, "Imageset/Output")
+label_path = os.path.join(dataset_root, "Imageset/DefectLabel.xlsx")
 df = pd.read_excel(label_path)
 
 # =========================
@@ -177,7 +177,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 # =========================
 # 로그 디렉토리 생성
 # =========================
-global_log_root = os.path.join(".", f"log_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+global_log_root = os.path.join(dataset_root, f"CNNlog_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
 os.makedirs(global_log_root, exist_ok=True)
 print(f"로그 디렉토리 생성됨: {global_log_root}")
 
