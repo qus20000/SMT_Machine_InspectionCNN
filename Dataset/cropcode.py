@@ -31,9 +31,9 @@ from concurrent.futures import ProcessPoolExecutor
 dataset_root = "./Dataset"
 output_root = os.path.join(dataset_root, "Output")
 output_hue_root = os.path.join(dataset_root, "Output_Hue")
-crop_width = 450
-crop_height = 400
-num_workers = 8
+crop_width = 650 # 크롭 너비
+crop_height = 270 # 크롭 높이
+num_workers = 16 # 멀티프로세싱 워커 수
 
 # === 처리할 소자 prefix 설정 ===
 allowed_prefixes = ["C", "R", "LED"]
@@ -61,13 +61,22 @@ def crop_center(image, crop_width, crop_height):
 # =========================
 def process_board_folder(folder_name):
     local_output_image_names = []
+    local_defect_labels = []
 
     board_path = os.path.join(dataset_root, folder_name)
+    parts = folder_name.split("_")
+    
+    # 폴더명이 적절한 형식이 아니면 건너뜀
+    if len(parts) < 2:
+        return [], []
+        
     try:
-        board_name, angle_str = folder_name.split("_")
-        angle = float(angle_str)
+        board_name = parts[0]
+        angle = float(parts[1])
+        # 언더바가 추가로 있으면 (예: BOARD2_-0.015_SHIFT) Defect=1
+        is_defect = len(parts) > 2
     except ValueError:
-        return []
+        return [], []
 
     for filename in os.listdir(board_path):
         if not filename.lower().endswith(".png"):
@@ -86,7 +95,9 @@ def process_board_folder(folder_name):
         rotated = rotate_image_keep_size(image, angle)
         cropped = crop_center(rotated, crop_width, crop_height)
 
-        out_filename = f"{board_name}_{comp_name}.png"
+        # Defect 이미지의 경우 파일명 끝에 _D 추가
+        suffix = "_D" if is_defect else ""
+        out_filename = f"{board_name}_{comp_name}{suffix}.png"
         out_path = os.path.join(output_root, out_filename)
         cv2.imwrite(out_path, cropped)
 
@@ -97,12 +108,14 @@ def process_board_folder(folder_name):
         hue_only[:, :, 2] = 255
         hue_bgr = cv2.cvtColor(hue_only, cv2.COLOR_HSV2BGR)
 
+        # Hue 이미지도 동일한 파일명으로 저장
         out_hue_path = os.path.join(output_hue_root, out_filename)
         cv2.imwrite(out_hue_path, hue_bgr)
 
         local_output_image_names.append(out_filename)
+        local_defect_labels.append(1 if is_defect else 0)
 
-    return local_output_image_names
+    return local_output_image_names, local_defect_labels
 
 # =========================
 # 멀티프로세싱 실행
@@ -120,16 +133,18 @@ if __name__ == "__main__":
                      if os.path.isdir(os.path.join(dataset_root, f)) and "_" in f]
 
     all_image_names = []
+    all_defect_labels = []
     with ProcessPoolExecutor(max_workers=num_workers) as executor:
-        for result in tqdm(executor.map(process_board_folder, board_folders), total=len(board_folders)):
-            all_image_names.extend(result)
+        for images, labels in tqdm(executor.map(process_board_folder, board_folders), total=len(board_folders)):
+            all_image_names.extend(images)
+            all_defect_labels.extend(labels)
 
     # =========================
     # 라벨링 엑셀 생성
     # =========================
     label_df = pd.DataFrame({
         "ImageName": all_image_names,
-        "Defect": [0] * len(all_image_names)
+        "Defect": all_defect_labels
     })
     label_path = os.path.join(dataset_root, "DefectLabel.xlsx")
     label_df.to_excel(label_path, index=False)

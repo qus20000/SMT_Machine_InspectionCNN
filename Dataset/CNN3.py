@@ -1,4 +1,81 @@
 import os
+import sys
+import subprocess
+
+# =========================
+# 필요한 패키지 자동 설치
+# =========================
+def install_packages(packages):
+    for package in packages:
+        try:
+            if package in ["torch", "torchvision"]:
+                continue  # PyTorch는 별도로 설치
+            __import__(package.split("-")[0])
+        except ImportError:
+            print(f"'{package}' 설치 중...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", package])
+
+def install_pytorch():
+    try:
+        import torch
+        import torchvision
+        if torch.cuda.is_available():
+            print("CUDA 가능한 PyTorch가 이미 설치되어 있습니다.")
+            return
+    except ImportError:
+        pass
+    
+    print("CUDA 가능한 PyTorch 설치 중...")
+    try:
+        # 기존 설치 제거
+        subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "torch", "torchvision", "torchaudio"])
+        
+        # PyTorch 설치
+        print("torch 설치 중...")
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install", "torch", "--index-url", "https://download.pytorch.org/whl/cu118"
+        ])
+        
+        # torchvision 설치
+        print("torchvision 설치 중...")
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install", "torchvision", "--index-url", "https://download.pytorch.org/whl/cu118"
+        ])
+        
+        # torchaudio 설치
+        print("torchaudio 설치 중...")
+        subprocess.check_call([
+            sys.executable, "-m", "pip", "install", "torchaudio", "--index-url", "https://download.pytorch.org/whl/cu118"
+        ])
+        
+        print("PyTorch CUDA 설치 완료!")
+        
+    except subprocess.CalledProcessError as e:
+        print(f"PyTorch 설치 중 오류 발생: {e}")
+        print("수동으로 다음 명령어들을 순서대로 실행해보세요:")
+        print(f"{sys.executable} -m pip install torch --index-url https://download.pytorch.org/whl/cu118")
+        print(f"{sys.executable} -m pip install torchvision --index-url https://download.pytorch.org/whl/cu118")
+        print(f"{sys.executable} -m pip install torchaudio --index-url https://download.pytorch.org/whl/cu118")
+        raise
+
+# 필요한 패키지 목록 (PyTorch 제외)
+required_packages = [
+    "opencv-python",
+    "pandas",
+    "matplotlib",
+    "scikit-learn",
+    "tqdm",
+    "numpy",
+    "openpyxl"
+]
+
+# PyTorch CUDA 버전 먼저 설치
+install_pytorch()
+
+# 패키지 설치 실행
+install_packages(required_packages)
+
+# 패키지 임포트
 import cv2
 import json
 import torch
@@ -40,7 +117,16 @@ num_folds = 5
 num_classes = 2
 
 def create_model(learning_rate, optimizer_name):
+    # 커스텀 ResNet18 모델 생성
     model = resnet18(weights=ResNet18_Weights.DEFAULT)
+    
+    # 첫 번째 컨볼루션 레이어를 650x270 입력 크기에 맞게 수정
+    model.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3, bias=False)
+    
+    # Average Pooling 레이어 수정 (최종 피쳐맵 크기 조정)
+    model.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+    
+    # 마지막 fully connected 레이어 수정
     model.fc = nn.Linear(model.fc.in_features, num_classes)
     model = model.to(device)
 
@@ -80,7 +166,7 @@ class SolderDataset(Dataset):
 transform = transforms.Compose([
     transforms.ToPILImage(),
     transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5]*3, std=[0.5]*3)
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  # ImageNet 표준화 값 사용
 ])
 
 # =========================
