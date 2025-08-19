@@ -130,7 +130,7 @@ python CNN3.py
 
 ## Inference
 1) 사용할 모델을 정해진 곳에 둡니다(예: `./Dataset/best_model.pt`).  
-2) Cropcode.py를 실행했을 때 Test 데이터를 포함한 경우, `./Dataset/Imageset/Output_Test` 폴더가 생성되며, 해당 폴더를 자동으로 인식합니다. 존재하지 않는 경우, 
+2) Cropcode.py를 실행했을 때 Test 데이터를 포함한 경우, `./Dataset/Imageset/Output_Test` 폴더가 생성되며, 해당 폴더를 자동으로 인식합니다. cropcode를 사용하지 않는 경우, 수동으로 해당 위치에 넣으시기 바랍니다.
 3) 실행:
 ```bash
 python inferencecode.py
