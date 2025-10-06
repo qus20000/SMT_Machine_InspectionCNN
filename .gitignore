@@ -212,6 +212,9 @@ log_*/
 *.log
 Dataset/CNNlog_*/
 Dataset/inferenceResult_*/
+Dataset/**/inference_output_*/
+Dataset/**/Imageset/
+
 
 # Dataset outputs
 AOILight_Dataset/
@@ -231,6 +234,14 @@ Dataset/DefectLabelBOARD6_DEFECTTEST.xlsx
 Dataset/새폴더 (*)
 Dataset/새폴더 [0-9]*/
 Dataset/새폴더 ([0-9]*)/
+Dataset/새 폴더*/
+Dataset/**/새 폴더*/
+
+
+**/Output*/
+**/Output */           
+**/Output_Hue*/
+**/Output_Hue */
 
 *.xlsx
 Dataset/Imageset/
