@@ -210,8 +210,12 @@ __marimo__/
 # Logs
 log_*/
 *.log
+Dataset/CNNlog_*/
+Dataset/inferenceResult_*/
 
 # Dataset outputs
+AOILight_Dataset/
+AOILight_Dataset[0-9]*/
 Dataset/Output*/
 Dataset/Output [0-9]*/
 Dataset/Output ([0-9]*)/
@@ -230,11 +234,20 @@ Dataset/새폴더 ([0-9]*)/
 
 *.xlsx
 Dataset/Imageset/
+*.png
+*.jpg
+*.jpeg
+*.gif
+
 
 # Model checkpoints
 *.pt
 *.pth
 
-# Ignore mistaken scripts
+
+# Ignore recent scripts
 Dataset/CNN1.py
 Dataset/CNN2.py
+
+*.zip
+

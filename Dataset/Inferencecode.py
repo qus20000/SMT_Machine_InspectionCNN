@@ -15,7 +15,7 @@ from torch import nn
 # - model_path: 학습 시 저장한 best 모델 경로(예: .../CNNlog_YYYYMMDD_HHMMSS/best_model.pt)
 # - output_dir: 추론 결과 저장 폴더
 input_dir = "./Dataset/Imageset/Output_Test"
-model_path = "./Dataset/best_model.pt"  # 필요시 실제 best_model.pt 경로로 교체
+model_path = "./Dataset/model.pt"  # 필요시 실제 model.pt 경로로 교체
 output_dir = f"./Dataset/inferenceResult_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 os.makedirs(output_dir, exist_ok=True)
 
