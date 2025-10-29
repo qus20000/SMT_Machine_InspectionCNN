@@ -1,0 +1,14 @@
+{
+  "pnp_path": "./Dataset/app/PickAndPlace_PCB2_2025-10-23.xlsx",
+  "html_out": "./Dataset/app/boardmap.html",
+  "model_path": "./Dataset/model.pt",
+  "watch_image_dir": "./Dataset/inference_output",
+  "poll_sec": 0.1,
+  "input_size": 224,
+  "roi_w": 650,
+  "roi_h": 270,
+  "threshold": 0.5,
+  "color_ok": "#09fd01",
+  "color_ng": "#ee0101",
+  "color_neutral": "#64748B"
+}

@@ -1,0 +1,9 @@
+{
+  "pnp_path": "./Dataset/PickAndPlace_PCB2_2025-10-23.xlsx",
+  "html_out": "C:\\SMT_Machine_InspectionCNN\\Dataset\\app\\boardmap.html",
+  "model_path": "./Dataset/model.pt",
+  "watch_image_dir": "C:\\openpnp_logs",
+  "poll_sec": 0.25,
+  "input_size": 224,
+  "results_path": "./Dataset/PredictionResults.xlsx"
+}

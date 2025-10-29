@@ -67,12 +67,6 @@ def sort_df(df: pd.DataFrame, fname_col: str) -> pd.DataFrame:
 def _resolve_overwrite_check(user_flag):
     """
     덮어쓰기 정책 결정을 일원화한다.
-    우선순위:
-      1) 환경변수 EXCELSORTER_OVERWRITE
-         - "1/true/on/yes"  -> 자동 덮어쓰기 (프롬프트 없음) -> overwrite_check=False
-         - "0/false/off/no" -> 프롬프트로 확인           -> overwrite_check=True
-      2) 함수 인자 overwrite_check 가 None이 아니면 그 값 사용
-      3) 기본값(False): 자동 덮어쓰기(프롬프트 없음)
     """
     env = os.environ.get("EXCELSORTER_OVERWRITE", "").strip().lower()
     if env in ("1", "true", "on", "yes"):
@@ -89,16 +83,6 @@ def sort_excel(df: pd.DataFrame,
                overwrite_check: bool | None = None):
     """
     데이터프레임을 정렬하여 반환하거나 저장한다.
-
-    Args:
-        df: 정렬할 데이터프레임
-        filename_column: 파일명 열 이름. None이면 자동 감지
-        output_path: 저장 경로. None이면 저장하지 않고 정렬된 DF만 반환
-        overwrite_check: None이면 환경변수 정책을 우선 적용, 없으면 기본 False(자동 덮어쓰기)
-                         True면 덮어쓰기 전 사용자 확인 프롬프트 표시
-
-    Returns:
-        정렬된 데이터프레임
     """
     # 파일명 컬럼 자동 감지
     if filename_column is None:
@@ -115,10 +99,11 @@ def sort_excel(df: pd.DataFrame,
         # 덮어쓰기 정책 결정
         ow_check = _resolve_overwrite_check(overwrite_check)
 
-        # 저장은 임시파일에 먼저 쓴 뒤 원자적 교체(os.replace)
-        tmp_path = output_path + ".tmp"
+        # 확장자 분리 후 임시 경로 생성 (.xlsx 유지)
+        base, ext = os.path.splitext(output_path)
+        tmp_path = f"{base}_tmp{ext}"
+
         if os.path.exists(output_path) and ow_check:
-            # 사용자 확인 프롬프트
             resp = input(f"\n{os.path.basename(output_path)} 파일이 이미 존재합니다. 덮어쓰시겠습니까? (Y/N): ").strip().upper()
             if resp != "Y":
                 print(f"저장 취소됨: {output_path}")

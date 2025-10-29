@@ -1,0 +1,8 @@
+PySide6>=6.6
+PySide6-Addons>=6.6
+opencv-python
+numpy
+pandas
+plotly
+torch
+torchvision

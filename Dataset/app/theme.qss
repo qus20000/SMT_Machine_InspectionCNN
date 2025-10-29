@@ -1,0 +1,21 @@
+
+* { font-family: 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; color: #E5E7EB; }
+QMainWindow, QWidget { background-color: #121624; }
+QToolBar { background-color: #0e1220; border: none; padding: 4px; }
+QFrame#QCard {
+  background-color: #161c2e;
+  border-radius: 14px;
+  border: 1px solid #2b3252;
+}
+QLabel#QCardTitle {
+  color: #cbd5e1;
+  font-weight: 600;
+  padding: 6px 10px 2px 10px;
+}
+QTextEdit {
+  background-color: #0b1020;
+  border: 1px solid #2b3252;
+  border-radius: 10px;
+  padding: 6px;
+}
+QSplitter::handle { background: #232a46; width: 6px; }
