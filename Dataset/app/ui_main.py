@@ -201,6 +201,7 @@ class MainWindow(QMainWindow):
                 color_ok=self.cfg["color_ok"],
                 color_ng=self.cfg["color_ng"],
                 color_neutral=self.cfg["color_neutral"],
+                bg_image_path=self.cfg.get("board_bg"),
             )
             self.web.load(QUrl.fromLocalFile(os.path.abspath(path)))
             # 로드가 끝난 뒤에만 JS 를 보낼 수 있도록

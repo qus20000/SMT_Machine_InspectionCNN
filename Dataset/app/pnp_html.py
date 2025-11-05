@@ -1,5 +1,5 @@
 # pnp_html.py
-# - 네가 주었던 pnp_visualize.py의 로직을 그대로 옮겨와서
+# - pnp_visualize.py의 로직을 그대로 옮겨와서
 #   GUI에서 사용할 수 있도록 함수화(build_boardmap_html)만 추가/정리
 # - 초기에는 모든 부품을 중립색(회색)으로 표시
 # - PySide6에서 JS 함수 PNP.setState("R75", 1) 로 실시간 색상 갱신 가능
@@ -9,6 +9,9 @@ import os, re, json
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import base64
+from PIL import Image
+
 
 # ---------------- Robust reader ----------------
 def read_table(path: str) -> pd.DataFrame:
@@ -296,8 +299,10 @@ def build_boardmap_html(*,
                         title: str,
                         color_ok: str,
                         color_ng: str,
+                        bg_image_path: str = None,
                         color_neutral: str) -> str:
-    import json, numpy as np
+                        
+
 
     if not os.path.exists(pnp_path):
         raise FileNotFoundError(f"PnP 파일을 찾을 수 없습니다: {pnp_path}")
@@ -329,13 +334,7 @@ def build_boardmap_html(*,
     pkg_label = np.array([p[0] for p in pairs], dtype=object)
     pkg_key = np.array([p[1] for p in pairs], dtype=object)
 
-    # ---------------- FID 제외 필터 ----------------
-    mask_valid = np.array([not str(d).upper().startswith("FID") for d in des])
-    des       = des[mask_valid]
-    pkg_label = pkg_label[mask_valid]
-    pkg_key   = pkg_key[mask_valid]
-    x_raw     = x_raw[mask_valid]
-    y_raw     = y_raw[mask_valid]
+ 
     # ------------------------------------------------
 
     fig = make_figure(
@@ -347,6 +346,65 @@ def build_boardmap_html(*,
         title=title,
         neutral_color=color_neutral,
     )
+
+    # -------------------------------------------------
+    #  배경 보드 이미지 붙이기 (1mm 당 19.85px 기준) (2025/11/06 추가)
+    # -------------------------------------------------
+    bg_b64 = None
+    board_mm_w = None
+    board_mm_h = None
+
+    if bg_image_path is not None and os.path.exists(bg_image_path):
+        try:
+            # 1) 이미지 픽셀 크기 읽기
+            img = Image.open(bg_image_path)
+            px_w, px_h = img.size   # (width, height) in pixels
+
+            # EasyEDA Png Export를 통해 추출된 이미지와 mm 간 축적계산값
+            px_per_mm = 19.85
+            board_mm_w = px_w / px_per_mm
+            board_mm_h = px_h / px_per_mm
+
+            # 2) base64 로 인코딩해서 HTML 안에 embed
+            with open(bg_image_path, "rb") as f:
+                bg_b64 = base64.b64encode(f.read()).decode("ascii")
+
+            print(f"[CHK] using board bg: {bg_image_path}, "
+                  f"{px_w}x{px_h}px -> {board_mm_w:.2f} x {board_mm_h:.2f} mm")
+        except Exception as e:
+            print(f"[WARN] bg load failed: {bg_image_path} ({e})")
+            bg_b64 = None
+
+    # 3) 실제로 Plotly 그림에 배경을 깔기
+    if bg_b64 is not None and board_mm_w is not None and board_mm_h is not None:
+        # (0,0)을 보드 왼쪽 위라고 가정하고, mm 단위로 전체 보드를 덮게 함
+        fig.add_layout_image(
+            dict(
+                source="data:image/png;base64," + bg_b64,
+                xref="x",
+                yref="y",
+                x=0.0,                  # 왼쪽
+                y=0.0,                  # 위쪽
+                sizex=board_mm_w,       # 가로 길이 (mm)
+                sizey=board_mm_h,       # 세로 길이 (mm)
+                sizing="stretch",
+                layer="below",          # 소자 박스보다 뒤에 배경이미지를 배치
+            )
+        )
+
+        # 축을 보드 전체 크기에 맞춰서 잡기
+        fig.update_xaxes(
+            range=[0.0, board_mm_w],
+            showgrid=False,
+            zeroline=False,
+        )
+        fig.update_yaxes(
+            range=[0.0, board_mm_h],
+            showgrid=False,
+            zeroline=False,
+            scaleanchor="x",
+            scaleratio=1,
+        )
 
     index = {str(d): i for i, d in enumerate(des)}
 
@@ -461,7 +519,7 @@ def build_boardmap_html(*,
         if (!pt || !pt.customdata) return;
         const des = String(pt.customdata[0] || "").toUpperCase();
 
-        // ★ 여기서 Python 슬롯 호출
+        // 여기서 Python 슬롯 호출
         if (qtBoard && typeof qtBoard.onBoardClick === "function") {{
           qtBoard.onBoardClick(des);
         }}
