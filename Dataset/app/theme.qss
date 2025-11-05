@@ -3,7 +3,7 @@
   font-family: 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
 }
 
-/* 🔴 이 줄이 qt-material 배경을 덮어버렸던 원인 → 주석 or 삭제
+/* 이 줄이 qt-material 배경을 덮어버렸던 원인 -> 주석 or 삭제
 QMainWindow, QWidget { background-color: #121624; }
 */
 

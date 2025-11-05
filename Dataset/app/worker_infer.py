@@ -40,7 +40,7 @@ def safe_read_image(path: str, retries: int = 5, delay: float = 0.15):
             if img is not None:
                 return img
         except PermissionError:
-            # 아직 다른 프로세스가 쓰는 중 → 잠깐 기다렸다가 다시
+            # 아직 다른 프로세스가 쓰는 중 -> 잠깐 기다렸다가 다시
             time.sleep(delay)
         except FileNotFoundError:
             # 저장이 아주 느리면 바로 안 보일 수도 있음

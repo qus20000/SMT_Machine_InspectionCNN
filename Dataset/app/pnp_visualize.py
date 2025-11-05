@@ -251,11 +251,11 @@ def make_figure(*,
     # autorange='reversed'로 0이 위에 오도록 뒤집음
     ymax_disp = float(np.nanmax(-y_raw))   
 
-    step = 5.0  # 눈금 간격(원하면 5.0, 2.5 등으로 변경 가능)
+    step = 5.0  # 눈금 간격
     ticks = np.arange(0.0, np.ceil(ymax_disp/step)*step + 0.1, step)
     ticktext = ["0"] + [f"-{int(v)}" if abs(v - int(v)) < 1e-9 else f"-{v:g}" for v in ticks[1:]]
 
-    fig.update_xaxes(
+    fig.update_xaxes( #
         title_text="X (mm; origin at top-left)",
         range=[0.0, float(np.nanmax(xs))],
         showgrid=True, gridwidth=1, gridcolor="#444",
@@ -267,7 +267,7 @@ def make_figure(*,
         ticktext=ticktext,
         title_text="Y (mm; top=0, down negative)",
         range=[0.0, ymax_disp],           # 위=0, 아래=양수
-        autorange="reversed",             # 화면상 위가 작은 값이 되도록 뒤집기
+        autorange="reversed",             # 화면상 위가 작은 값이 되도록 뒤집기. EasyEDA 상에서 우측아래로 디자인하면 필요한 옵션
         showgrid=True, gridwidth=1, gridcolor="#444",
         zeroline=False, linecolor="white", mirror=True,
         scaleanchor="x", scaleratio=1,
@@ -285,9 +285,6 @@ def make_figure(*,
 # ---------------- main ----------------
 def main():
     ap = argparse.ArgumentParser(description="PnP Plotly Viewer (robust UTF-16 CSV support)")
-    ap.add_argument("--pnp",     default=r"C:\CapstoneDesign1\PickandPlace_AOITestPCBV0.1_20250825.csv")
-    ap.add_argument("--defects", default=r"C:\CapstoneDesign1\PredictionResults.xlsx",
-                    help="Defect CSV/Excel path (optional)")
     ap.add_argument("--save-html", default="pnp_view.html")
     ap.add_argument("--title", default="PnP Viewer (package-sized crosses)")
     ap.add_argument("--layer", default="all", choices=["T","B","all"])
@@ -310,7 +307,7 @@ def main():
     if len(pnp)==0:
         raise SystemExit("표시할 PnP 데이터가 없습니다.")
 
-    # 좌표(원본) → 툴팁에도 그대로 사용
+    # 좌표(원본) -> 툴팁에도 그대로 사용
     x0 = to_float(pnp["Mid X"]).to_numpy()
     y0 = to_float(pnp["Mid Y"]).to_numpy()
 
@@ -332,10 +329,10 @@ def main():
     dev_ser = (pnp["Device"].astype("string").fillna("") if "Device" in pnp.columns
                else pd.Series([""]*len(pnp), dtype="string"))
     pairs = [extract_pkg_from_values(fp_ser.iat[i], dev_ser.iat[i]) for i in range(len(pnp))]
-    pkg_label = np.array([p[0] for p in pairs], dtype=object)   # 표기용 (C0603/R0805…)
-    pkg_key   = np.array([p[1] for p in pairs], dtype=object)   # 크기용 (c0603/r0805…)
+    pkg_label = np.array([p[0] for p in pairs], dtype=object)   # 표기용 (C0603/R0805...)
+    pkg_key   = np.array([p[1] for p in pairs], dtype=object)   # 크기용 (c0603/r0805...)
 
-    # defects → NG mask
+    # defects -> NG mask
     is_ng = np.zeros(len(des), dtype=bool)
     if args.defects and os.path.exists(args.defects):
         defs_raw = read_table(args.defects)

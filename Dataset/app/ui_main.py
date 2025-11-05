@@ -168,7 +168,7 @@ class MainWindow(QMainWindow):
         self._apply_qss()
 
         # -------------------------------------------------
-        # 웹채널 준비 (JS → Python 클릭 신호 받기)
+        # 웹채널 준비 (JS -> Python 클릭 신호 받기)
         # -------------------------------------------------
         self._board_bridge = BoardClickBridge()
         self._board_bridge.clicked.connect(self.on_board_clicked)
@@ -283,7 +283,7 @@ class MainWindow(QMainWindow):
         else:
             self._pending_js.append(js)
     # =========================================================
-    #        워커 → 이미지 들어왔을 때
+    #        워커 -> 이미지 들어왔을 때
     # =========================================================
     @Slot(object, dict)
     def on_image_ready(self, img, meta):
@@ -303,7 +303,7 @@ class MainWindow(QMainWindow):
             self.preview_label.setToolTip(des)
 
     # =========================================================
-    #        워커 → 로그 들어왔을 때
+    #        워커 -> 로그 들어왔을 때
     # =========================================================
     @Slot(str)
     def on_log(self, text: str):
@@ -311,7 +311,7 @@ class MainWindow(QMainWindow):
         self.log.moveCursor(QTextCursor.End)
 
     # =========================================================
-    #        워커 → 예측 결과 들어왔을 때
+    #        워커 -> 예측 결과 들어왔을 때
     # =========================================================
     @Slot(str, int, float)
     def on_pred(self, designator: str, pred: int, prob: float):
@@ -347,7 +347,7 @@ class MainWindow(QMainWindow):
         self._set_preview_pixmap(pix2)
 
     # =========================================================
-    #        보드 클릭(JS → Python)
+    #        보드 클릭(JS -> Python)
     # =========================================================
     @Slot(str)
     def on_board_clicked(self, des: str):

@@ -86,7 +86,7 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 def to_float(s: pd.Series) -> pd.Series:
     s = s.astype(str).str.replace("\x00","", regex=False)
     s = s.str.replace("\u2212","-", regex=False)  # 유니코드 마이너스
-    s = s.str.replace(",",".", regex=False)       # 소수점 콤마 → 점
+    s = s.str.replace(",",".", regex=False)       # 소수점 콤마 -> 점
     s = s.str.replace(r"[^0-9eE\+\-\.]", "", regex=True)
     return pd.to_numeric(s, errors="coerce")
 
