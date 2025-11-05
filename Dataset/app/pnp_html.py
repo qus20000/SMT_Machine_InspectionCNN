@@ -347,7 +347,7 @@ def build_boardmap_html(*,
         neutral_color=color_neutral,
     )
 
-    # -------------------------------------------------
+     # -------------------------------------------------
     #  배경 보드 이미지 붙이기 (1mm 당 19.85px 기준) (2025/11/06 추가)
     # -------------------------------------------------
     bg_b64 = None
@@ -389,6 +389,7 @@ def build_boardmap_html(*,
                 sizey=board_mm_h,       # 세로 길이 (mm)
                 sizing="stretch",
                 layer="below",          # 소자 박스보다 뒤에 배경이미지를 배치
+                name="pcb_bg"
             )
         )
 
@@ -427,6 +428,7 @@ def build_boardmap_html(*,
   window.PNP = {{
     indexByDes: {json.dumps(index)},
     stateByDes: {{}},     // des -> "ok" | "ng" | "neutral"
+    bgVisible: true,   //  배경 현재 상태 저장
 
     setState: function(des, pred) {{
       try {{
@@ -466,10 +468,33 @@ def build_boardmap_html(*,
       }} catch (err) {{
         console.log("[PNP.resetAll] error:", err);
       }}
+    }},
+    
+    setBgVisible: function(on) {{
+      try {{
+        const div = document.querySelector(PLOT_DIV_SELECTOR);
+        if (!div || !window.Plotly || !div._fullLayout) return;
+
+        const images = div._fullLayout.images || [];
+        const opacity = on ? 1.0 : 0.0;
+        const patch = {{}}; 
+
+        
+        for (let i = 0; i < images.length; i++) {{
+            const im = images[i];
+            if (im.name === "pcb_bg") {{
+                patch[`images[${{i}}].opacity`] = opacity;}}
+    }}
+    
+        window.Plotly.relayout(div, patch);
+        this.bgVisible = vis;
+      }} catch (err) {{
+        console.log("[PNP.setBgVisible] error:", err);
+      }}
     }}
   }};
 
-  // ★ 여기서 Qt WebChannel 초기화
+  // 여기서 Qt WebChannel 초기화
   //   Python 쪽에서 ui_main.py 안에서
   //     channel.registerObject("qtBoard", self._board_bridge)
   //   해놨으니까 이름은 그대로 "qtBoard"

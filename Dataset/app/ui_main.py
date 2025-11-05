@@ -3,7 +3,7 @@ from PySide6.QtCore import Qt, QSize, Slot, QUrl, QObject, Signal
 from PySide6.QtGui import QPixmap, QImage, QTextCursor
 from PySide6.QtWidgets import (
     QMainWindow, QVBoxLayout, QLabel, QTextEdit, QSplitter, QFrame,
-    QSizePolicy, QPushButton, QMessageBox, QWidget, QHBoxLayout
+    QSizePolicy, QPushButton, QMessageBox, QWidget, QHBoxLayout,QCheckBox
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
@@ -109,6 +109,12 @@ class MainWindow(QMainWindow):
         self.btn_reset = QPushButton("Reset board")
         self.btn_reset.clicked.connect(self.on_reset_board)
         self.html_card.body.addWidget(self.btn_reset)
+
+        # 배경 on/off 체크박스
+        self.chk_bg = QCheckBox("Show PCB background")
+        self.chk_bg.setChecked(True)  # 기본은 켜진 상태
+        self.chk_bg.toggled.connect(self.on_toggle_bg_background)
+        self.html_card.body.addWidget(self.chk_bg)
 
         self.web = QWebEngineView()
         self.html_card.body.addWidget(self.web)
@@ -262,7 +268,20 @@ class MainWindow(QMainWindow):
         self.click_title_label.setText("Selected: -")
 
         self.on_log("[ui] board reset")
-
+    # -------------------------------------------------
+    # PCB 배경 on/off 토글
+    # -------------------------------------------------
+    @Slot(bool)
+    def on_toggle_bg_background(self, checked: bool):
+        js = (
+            "if (window.PNP && window.PNP.setBgVisible) {"
+            f"  window.PNP.setBgVisible({str(checked).lower()});"
+            "}"
+        )
+        if self._web_ready:
+            self.web.page().runJavaScript(js)
+        else:
+            self._pending_js.append(js)
     # =========================================================
     #        워커 → 이미지 들어왔을 때
     # =========================================================
