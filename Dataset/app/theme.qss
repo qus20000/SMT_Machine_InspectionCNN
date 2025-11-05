@@ -1,21 +1,43 @@
+/* 전체 폰트만 살려두기 */
+* {
+  font-family: 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+}
 
-* { font-family: 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; color: #E5E7EB; }
+/* 🔴 이 줄이 qt-material 배경을 덮어버렸던 원인 → 주석 or 삭제
 QMainWindow, QWidget { background-color: #121624; }
-QToolBar { background-color: #0e1220; border: none; padding: 4px; }
+*/
+
+/* 툴바는 그대로 둬도 됨 (원하면 이것도 주석) */
+QToolBar {
+  background-color: #0e1220;
+  border: none;
+  padding: 4px;
+}
+
+/* 카드 스타일은 그대로 (이게 지금 UI 느낌을 만들어주고 있음) */
 QFrame#QCard {
   background-color: #161c2e;
   border-radius: 14px;
   border: 1px solid #2b3252;
 }
+
+/* 카드 타이틀 */
 QLabel#QCardTitle {
   color: #cbd5e1;
   font-weight: 600;
   padding: 6px 10px 2px 10px;
 }
+
+/* 로그창 같은 텍스트 박스 */
 QTextEdit {
   background-color: #0b1020;
   border: 1px solid #2b3252;
   border-radius: 10px;
   padding: 6px;
 }
-QSplitter::handle { background: #232a46; width: 6px; }
+
+/* 스플리터 색 */
+QSplitter::handle {
+  background: #232a46;
+  width: 6px;
+}

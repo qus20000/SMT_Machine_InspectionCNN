@@ -249,7 +249,7 @@ Dataset/Imageset/
 *.jpg
 *.jpeg
 *.gif
-
+*.bak
 
 # Model checkpoints
 *.pt

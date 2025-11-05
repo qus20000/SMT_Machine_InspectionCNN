@@ -137,11 +137,16 @@ def get_designators_from_pnp(df: pd.DataFrame) -> np.ndarray:
         return s_col.to_numpy()
 
 # ---------------- package sizes ----------------
+
 PKG_SIZE = {
     "c0603": (1.6, 0.8), "r0603": (1.6, 0.8),
     "c0805": (2.0, 1.25), "r0805": (2.0, 1.25),
     "c1206": (3.2, 1.6),  "r1206": (3.2, 1.6),
+    # 추가(20251105): LED 및 IC 계열 패키지
+    "led0603": (1.6, 0.8), "led0805": (2.0, 1.25), "led1206": (3.2, 1.6),
+    "sop8": (4.9, 3.8), "soic8": (4.9, 3.8),
 }
+
 def norm_pkg(fp: str) -> str:
     if not isinstance(fp, str):
         return ""
@@ -155,26 +160,39 @@ def norm_pkg(fp: str) -> str:
     return ""
 
 def extract_pkg_from_values(fp_val: str, dev_val: str):
-    """Footprint 또는 Device 문자열에서 C0603/R0805 같은 패키지명을 추출.
+    """Footprint 또는 Device 문자열에서 C0603/R0805/LED0805/SOP-8 등 패키지명을 추출.
        반환: (표시용 라벨(대문자), 크기계산용 키(소문자) or "")"""
     def _pick(s):
         if not s:
             return None
-        s = str(s)
-        m = re.search(r'([CR])\s*0?(\d{3,4})', s, flags=re.I)
+        s = str(s).strip()
+
+        # 1) 일반 SMD (R/C/LED0603 등)
+        m = re.search(r'([A-Z]+)\s*0?(\d{3,4})', s, flags=re.I)
         if m:
-            label = f"{m.group(1).upper()}{m.group(2).zfill(4)}"   # C0603
-            key   = f"{m.group(1).lower()}{m.group(2).zfill(4)}"   # c0603
+            label = f"{m.group(1).upper()}{m.group(2).zfill(4)}"   # 예: LED0805
+            key   = f"{m.group(1).lower()}{m.group(2).zfill(4)}"   # 예: led0805
             return (label, key)
+
+        # 2) IC 패키지 (SOP-8, SOIC-8 등) 20251105 추가
+        m = re.search(r'(sop|soic|tssop|qfn|qfp)[\-\s_]?(\d+)', s, flags=re.I)
+        if m:
+            label = f"{m.group(1).upper()}-{m.group(2)}"
+            key   = f"{m.group(1).lower()}{m.group(2)}"            # 예: sop8
+            return (label, key)
+
         return None
+
     got = _pick(fp_val)
     if got:
         return got
     got = _pick(dev_val)
     if got:
         return got
+
     fp_txt = "" if fp_val is None else str(fp_val)
     return (fp_txt, (norm_pkg(fp_txt) or ""))
+
 
 # ---------------- drawing ----------------
 def add_rect_icon(fig, x, y, color, pkg_key, edge="white", opacity=0.9):
@@ -227,35 +245,48 @@ def make_figure(*,
         add_rect_icon(fig, xi, yi, neutral_color, k)
 
     # 축 설정
-    ymax_disp = float(np.nanmax(-y_raw))
-    step = 5.0
-    ticks = np.arange(0.0, np.ceil(ymax_disp/step)*step + 0.1, step)
-    ticktext = ["0"] + [f"-{int(v)}" if abs(v - int(v)) < 1e-9 else f"-{v:g}" for v in ticks[1:]]
+    x_min = float(np.nanmin(xs))
+    x_max = float(np.nanmax(xs))
+    y_min = float(np.nanmin(ys))
+    y_max = float(np.nanmax(ys))
+    pad = 5.0  # 주변 여백(mm) – 필요하면 줄이거나 늘려도 됨
+
+     # 2) X축은 양끝 1%를 outlier 로 보고 잘라서 "가운데만" 보이게
+    xs_valid = xs[np.isfinite(xs)]
+    if len(xs_valid):
+        q1, q99 = np.percentile(xs_valid, [1, 99])  # 1% ~ 99%
+        pad = 5.0                                   # 양쪽 여유 (mm)
+        x_min = float(q1 - pad)
+        x_max = float(q99 + pad)
+    else:
+        # 혹시라도 이상하면 기존 방식으로 fallback
+        x_min = 0.0
+        x_max = float(np.nanmax(xs))
 
     fig.update_xaxes(
-        title_text="X (mm; origin at top-left)",
-        range=[0.0, float(np.nanmax(xs))],
+        title_text="",
+        range=[float(np.nanmin(xs)) - 1, float(np.nanmax(xs)) + 1],
         showgrid=True, gridwidth=1, gridcolor="#444",
         zeroline=False, linecolor="white", mirror=True,
     )
     fig.update_yaxes(
-        tickmode="array",
-        tickvals=ticks,
-        ticktext=ticktext,
-        title_text="Y (mm; top=0, down negative)",
-        range=[0.0, ymax_disp],
+        title_text="",
+        range=[float(np.nanmin(ys)) - 1, float(np.nanmax(ys)) + 1],
         autorange="reversed",
         showgrid=True, gridwidth=1, gridcolor="#444",
         zeroline=False, linecolor="white", mirror=True,
         scaleanchor="x", scaleratio=1,
         tickformat="~g",
     )
+
     fig.update_layout(
-        title=title, paper_bgcolor="black", plot_bgcolor="black",
-        font=dict(color="white"),
-        legend=dict(bgcolor="black", bordercolor="white", borderwidth=1),
-        margin=dict(l=50, r=20, t=50, b=50),
+        title=title,                  # 제목은 그대로 두고 싶으면 유지
+        paper_bgcolor="black",
+        plot_bgcolor="black",
+        showlegend=False,
+        margin=dict(l=5, r=5, t=20, b=5),
     )
+    
     return fig
 
 # ---------------- public API ----------------
@@ -266,79 +297,194 @@ def build_boardmap_html(*,
                         color_ok: str,
                         color_ng: str,
                         color_neutral: str) -> str:
-    """
-    GUI에서 호출. 초기에는 color_neutral로 그리며,
-    JS 측에서 PNP.setState('R75', 1) 식으로 OK/NG 갱신.
-    """
+    import json, numpy as np
+
     if not os.path.exists(pnp_path):
         raise FileNotFoundError(f"PnP 파일을 찾을 수 없습니다: {pnp_path}")
 
-    # PnP 읽기/정리
     pnp = normalize_columns(read_table(pnp_path))
-    need = ["Designator","Mid X","Mid Y","Footprint"]
+    need = ["Designator", "Mid X", "Mid Y", "Footprint"]
     if not all(c in pnp.columns for c in need):
-        raise RuntimeError(f"필수 컬럼 누락: {need} (현재: {list(pnp.columns)})")
+        # Footprint가 없으면 우리가 추출해둔 pkg라벨로 대체
+        if "Footprint" not in pnp.columns and "Device" in pnp.columns:
+            pnp["Footprint"] = pnp["Device"]
+        else:
+            raise RuntimeError(f"필수 컬럼 누락: {need} (현재: {list(pnp.columns)})")
 
-    # 좌표(원본)
     x0 = to_float(pnp["Mid X"]).to_numpy()
     y0 = to_float(pnp["Mid Y"]).to_numpy()
 
-    # X는 +, Y는 −가 정상인데 반대로 들어오면 자동 교정
     if np.nanmin(x0) < 0 and np.nanmin(y0) > 0:
-        # print("[fix] detected swapped columns -> use Mid Y as X, Mid X as Y")
         x_raw, y_raw = y0, x0
     else:
         x_raw, y_raw = x0, y0
 
-    # Designator
     des = get_designators_from_pnp(pnp)
 
-    # 패키지 라벨/키
-    fp_ser  = pnp["Footprint"].astype("string").fillna("").str.replace("\x00", "", regex=False)
-    dev_ser = (pnp["Device"].astype("string").fillna("") if "Device" in pnp.columns
-               else pd.Series([""]*len(pnp), dtype="string"))
+    fp_ser = pnp["Footprint"].astype("string").fillna("").str.replace("\x00", "", regex=False)
+    dev_ser = (pnp["Device"].astype("string").fillna("")
+            if "Device" in pnp.columns
+            else pd.Series([""] * len(pnp), dtype="string"))
     pairs = [extract_pkg_from_values(fp_ser.iat[i], dev_ser.iat[i]) for i in range(len(pnp))]
     pkg_label = np.array([p[0] for p in pairs], dtype=object)
-    pkg_key   = np.array([p[1] for p in pairs], dtype=object)
+    pkg_key = np.array([p[1] for p in pairs], dtype=object)
 
-    # 그림 생성 (초기 전부 회색)
+    # ---------------- FID 제외 필터 ----------------
+    mask_valid = np.array([not str(d).upper().startswith("FID") for d in des])
+    des       = des[mask_valid]
+    pkg_label = pkg_label[mask_valid]
+    pkg_key   = pkg_key[mask_valid]
+    x_raw     = x_raw[mask_valid]
+    y_raw     = y_raw[mask_valid]
+    # ------------------------------------------------
+
     fig = make_figure(
-        x_raw=x_raw, y_raw=y_raw,
-        designator=des, pkg_key=pkg_key, pkg_label=pkg_label,
-        title=title, neutral_color=color_neutral,
+        x_raw=x_raw,
+        y_raw=y_raw,
+        designator=des,
+        pkg_key=pkg_key,
+        pkg_label=pkg_label,
+        title=title,
+        neutral_color=color_neutral,
     )
 
-    # designator -> shape index 매핑 (shapes는 fig.layout.shapes 순서)
     index = {str(d): i for i, d in enumerate(des)}
 
-    # HTML 생성 (Plotly를 inline으로 포함: WebEngine 오프라인 호환)
     html = fig.to_html(include_plotlyjs="inline", full_html=True)
 
-    # 라이브 업데이트용 JS 삽입
     inject = f"""
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 <script>
-(function(){{
-  const OK="{color_ok}";
-  const NG="{color_ng}";
+(function() {{
+  // 색 정의
+  const OK = "{color_ok}";
+  const NG = "{color_ng}";
+  const NEUTRAL = "{color_neutral}";
+  const PLOT_DIV_SELECTOR = "div.plotly-graph-div";
+
+  // 나중에 plotly_click에서 쓸 Qt 객체
+  let qtBoard = null;
+
+  // 전역 PNP 객체
   window.PNP = {{
     indexByDes: {json.dumps(index)},
+    stateByDes: {{}},     // des -> "ok" | "ng" | "neutral"
+
     setState: function(des, pred) {{
-      if (!des) return;
-      const key = String(des).toUpperCase();
-      const i = this.indexByDes[key];
-      if (i === undefined) return;
-      const col = (Number(pred) === 1) ? NG : OK;
-      const patch = {{}};
-      patch[`shapes[${{i}}].fillcolor`] = col;
-      Plotly.relayout(document.querySelector('div.plotly-graph-div'), patch);
+      try {{
+        if (!des) return;
+        const key = String(des).toUpperCase();
+        const idx = this.indexByDes[key];
+        if (idx === undefined) return;
+
+        const div = document.querySelector(PLOT_DIV_SELECTOR);
+        if (!div || !window.Plotly) return;
+
+        const col = (Number(pred) === 1) ? NG : OK;
+        const st  = (Number(pred) === 1) ? "ng" : "ok";
+        this.stateByDes[key] = st;
+
+        const patch = {{}};
+        patch[`shapes[${{idx}}].fillcolor`] = col;
+        window.Plotly.relayout(div, patch);
+      }} catch (err) {{
+        console.log("[PNP.setState] error:", err);
+      }}
+    }},
+
+    resetAll: function() {{
+      try {{
+        const div = document.querySelector(PLOT_DIV_SELECTOR);
+        if (!div || !window.Plotly) return;
+
+        const patch = {{}};
+        for (const [des, idx] of Object.entries(this.indexByDes)) {{
+          patch[`shapes[${{idx}}].fillcolor`] = NEUTRAL;
+        }}
+        window.Plotly.relayout(div, patch);
+
+        // 상태도 초기화
+        this.stateByDes = {{}};
+      }} catch (err) {{
+        console.log("[PNP.resetAll] error:", err);
+      }}
     }}
   }};
+
+  // ★ 여기서 Qt WebChannel 초기화
+  //   Python 쪽에서 ui_main.py 안에서
+  //     channel.registerObject("qtBoard", self._board_bridge)
+  //   해놨으니까 이름은 그대로 "qtBoard"
+  new QWebChannel(qt.webChannelTransport, function(channel) {{
+    qtBoard = channel.objects.qtBoard;
+    // console.log("Qt board connected:", !!qtBoard);
+  }});
+
+  // Plotly div가 만들어진 뒤에 hover / click 붙이기
+  function setupPlotEvents() {{
+    const div = document.querySelector(PLOT_DIV_SELECTOR);
+    if (!div || !window.Plotly) {{
+      // 아직 안 만들어졌으면 조금 있다가 다시
+      setTimeout(setupPlotEvents, 300);
+      return;
+    }}
+
+    // 마우스 올렸을 때 툴팁 색상 바꾸기
+    div.on('plotly_hover', function(ev) {{
+      try {{
+        const pt = ev.points && ev.points[0];
+        if (!pt || !pt.customdata) return;
+        const des = String(pt.customdata[0] || "").toUpperCase();
+        const st  = (window.PNP.stateByDes && window.PNP.stateByDes[des]) || "neutral";
+
+        // 기본 파랑
+        let bg = "rgba(120,160,255,0.85)";
+        if (st === "ok") {{
+          bg = "rgba(120,255,120,0.85)";     // 연두
+        }} else if (st === "ng") {{
+          bg = "rgba(255,120,120,0.85)";     // 연빨
+        }}
+
+        window.Plotly.relayout(div, {{
+          "hoverlabel.bgcolor": bg,
+          "hoverlabel.font.color": "black"
+        }});
+      }} catch (err) {{
+        console.log("[hover] error:", err);
+      }}
+    }});
+
+    // 보드 클릭 -> Qt 로 보내기
+    div.on('plotly_click', function(ev) {{
+      try {{
+        const pt = ev.points && ev.points[0];
+        if (!pt || !pt.customdata) return;
+        const des = String(pt.customdata[0] || "").toUpperCase();
+
+        // ★ 여기서 Python 슬롯 호출
+        if (qtBoard && typeof qtBoard.onBoardClick === "function") {{
+          qtBoard.onBoardClick(des);
+        }}
+      }} catch (err) {{
+        console.log("[click] error:", err);
+      }}
+    }});
+  }}
+
+  if (document.readyState === "loading") {{
+    document.addEventListener("DOMContentLoaded", setupPlotEvents);
+  }} else {{
+    setupPlotEvents();
+  }}
 }})();
 </script>
 """
     html = html.replace("</body>", inject + "</body>")
 
+
+
     os.makedirs(os.path.dirname(out_html) or ".", exist_ok=True)
     with open(out_html, "w", encoding="utf-8") as f:
         f.write(html)
+
     return out_html

@@ -1,4 +1,3 @@
-
 import os, re, time
 import numpy as np, cv2, torch
 from torch import nn
@@ -27,6 +26,26 @@ def crop_center(img,w,h):
     cx,cy=W//2,H//2
     x1=max(cx-w//2,0);y1=max(cy-h//2,0)
     return img[y1:y1+h,x1:x1+w]
+
+def safe_read_image(path: str, retries: int = 5, delay: float = 0.15):
+    """
+    Windows에서 파일이 아직 저장 중일 때 PermissionError 나는 걸 막기 위해
+    몇 번 재시도하면서 이미지를 읽는다.
+    """
+    for i in range(retries):
+        try:
+            # np.fromfile + cv2.imdecode 패턴 유지
+            data = np.fromfile(path, np.uint8)
+            img = cv2.imdecode(data, cv2.IMREAD_COLOR)
+            if img is not None:
+                return img
+        except PermissionError:
+            # 아직 다른 프로세스가 쓰는 중 → 잠깐 기다렸다가 다시
+            time.sleep(delay)
+        except FileNotFoundError:
+            # 저장이 아주 느리면 바로 안 보일 수도 있음
+            time.sleep(delay)
+    return None
 
 class InferenceWorker(QThread):
     image_ready=Signal(object,dict)
@@ -68,7 +87,10 @@ class InferenceWorker(QThread):
             for fn in names:
                 p=os.path.join(imgdir,fn); mt=os.stat(p).st_mtime_ns
                 if self._seen.get(p)==mt: continue
-                img=cv2.imdecode(np.fromfile(p,np.uint8),cv2.IMREAD_COLOR)
+                img = safe_read_image(p)
+                if img is None:
+                    self.log_ready.emit(f"[worker] 이미지 읽기 실패(잠김): {p}")
+                    continue
                 if img is None: continue
                 patch=crop_center(img,roi_w,roi_h)
                 des=canonical_designator(fn)
