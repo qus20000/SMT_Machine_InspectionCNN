@@ -12,9 +12,6 @@ import torchvision.transforms as transforms
 from torch import nn, optim
 from torch.utils.data import Dataset, DataLoader
 from torchvision.models import resnet18, ResNet18_Weights
-from torchvision.models import efficientnet_b0, EfficientNet_B0_Weights
-from torchvision.models import vit_b_16, ViT_B_16_Weights   # [2025/11/06 추가] ViT 모델 임포트
-
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import roc_auc_score
 from datetime import datetime
@@ -28,40 +25,70 @@ torch.manual_seed(42)
 np.random.seed(42)
 random.seed(42)
 torch.backends.cudnn.deterministic = True
-torch.backends.cudnn.benchmark = True  # [2025/10/31 수정] 성능 최적화 허용
+torch.backends.cudnn.benchmark = True
 
 def seed_worker(worker_id):
     worker_seed = torch.initial_seed() % 2**32
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
-
 # =========================
-# [2025/11/06 추가] 색상비 + HSV + CLAHE 전처리 함수
+# [2025/11/07 추가] CLAHE + 색상비 채널 추가 전처리
 # =========================
 def preprocess_with_ratio_hsv(image):
-    """RGB 이미지 입력 -> HSV CLAHE + R/G, B/G 채널 추가"""
-    # HSV 변환
+    """RGB -> HSV CLAHE + 색상비(R/G, B/G) 추가"""
     hsv = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
     h, s, v = cv2.split(hsv)
-
-    # CLAHE 적용 (밝기 균일화)
     clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
     v = clahe.apply(v)
     hsv = cv2.merge([h, s, v])
     image_hsv = cv2.cvtColor(hsv, cv2.COLOR_HSV2RGB)
-
-    # 색상비 계산 (R/G, B/G)
     img_f = image_hsv.astype(np.float32) + 1e-6
     R, G, B = cv2.split(img_f)
     RG_ratio = (R / G).clip(0, 5)
     BG_ratio = (B / G).clip(0, 5)
-
-    # 5채널로 병합
     merged = np.stack([R, G, B, RG_ratio, BG_ratio], axis=-1)
     merged = np.clip(merged / 255.0, 0, 1)
     return merged.astype(np.float32)
 
+# =========================
+# [2025/11/07 추가] 비율 유지 + 패딩 정사각 리사이즈
+# =========================
+def resize_with_padding_np(img: np.ndarray, target_size: int = 224) -> np.ndarray:
+    h, w = img.shape[:2]
+    scale = target_size / max(h, w)
+    nh, nw = int(h * scale), int(w * scale)
+    resized = cv2.resize(img, (nw, nh), interpolation=cv2.INTER_LINEAR)
+    top = (target_size - nh) // 2
+    bottom = target_size - nh - top
+    left = (target_size - nw) // 2
+    right = target_size - nw - left
+    return cv2.copyMakeBorder(resized, top, bottom, left, right,
+                              cv2.BORDER_CONSTANT, value=0)
+
+# =========================
+# [2025/11/07 추가] Pickle-safe transform helpers
+# =========================
+def cvt_bgr2rgb(img: np.ndarray) -> np.ndarray:
+    """BGR → RGB"""
+    return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+def pil_to_np(pil_img):
+    """PIL 이미지를 NumPy로"""
+    return np.array(pil_img)
+
+def color_jitter_then_5ch(img: np.ndarray) -> np.ndarray:
+    """ColorJitter 적용 후 5채널 변환"""
+    import torchvision.transforms as T
+    pil_img = T.ToPILImage()(img)
+    pil_img = T.ColorJitter(
+        brightness=0.3, contrast=0.4, saturation=0.3, hue=0.1
+    )(pil_img)
+    np_img = np.array(pil_img)
+    return preprocess_with_ratio_hsv(np_img)
+
+def np_to_tensor_5ch(img: np.ndarray) -> torch.Tensor:
+    return torch.from_numpy(img.transpose(2, 0, 1)).float()
 
 # =========================
 # 커스텀 데이터셋
@@ -80,52 +107,31 @@ class SolderDataset(Dataset):
         label = self.df.iloc[idx]["Defect"]
         img_path = os.path.join(self.image_dir, img_name)
         image = cv2.imread(img_path)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-        # [2025/11/06 추가] CLAHE + 색상비 전처리 적용
-        image = preprocess_with_ratio_hsv(image)
-
         if self.transform:
             image = self.transform(image)
         return image, label
 
-
 # =========================
-# [2025/11/06 추가] Tensor 변환 함수 (5채널 호환)
-# =========================
-class ToTensor5Ch:
-    def __call__(self, image):
-        image = torch.from_numpy(image.transpose((2, 0, 1))).float()
-        return image
-
-
-# =========================
-# 데이터 변환 정의
+# 데이터 변환 정의 (blur 제외, Pickle 오류 해결)
 # =========================
 train_transform = transforms.Compose([
-    ToTensor5Ch(),  # [2025/11/06 수정] 5채널 입력으로 교체
+    transforms.Lambda(cvt_bgr2rgb),
+    transforms.Lambda(color_jitter_then_5ch),
+    transforms.Lambda(resize_with_padding_np),
+    transforms.Lambda(np_to_tensor_5ch),
+    transforms.RandomApply([
+        transforms.RandomRotation(10),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomResizedCrop(224, scale=(0.8,1.0))
+    ], p=0.8),
 ])
 
 val_transform = transforms.Compose([
-    ToTensor5Ch(),
+    transforms.Lambda(cvt_bgr2rgb),
+    transforms.Lambda(preprocess_with_ratio_hsv),
+    transforms.Lambda(resize_with_padding_np),
+    transforms.Lambda(np_to_tensor_5ch),
 ])
-
-# =========================
-# [2025/11/06 추가] FocalLoss 클래스 정의
-# =========================
-class FocalLoss(nn.Module):
-    def __init__(self, alpha=0.25, gamma=2.0):
-        super().__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.ce = nn.CrossEntropyLoss(reduction='none')
-
-    def forward(self, inputs, targets):
-        ce_loss = self.ce(inputs, targets)
-        pt = torch.exp(-ce_loss)
-        loss = self.alpha * (1 - pt) ** self.gamma * ce_loss
-        return loss.mean()
-
 
 # =========================
 # Windows-safe main 시작
@@ -141,31 +147,7 @@ if __name__ == "__main__":
     df = pd.read_excel(label_path)
 
     # =========================
-    # 하이퍼파라미터 로드
-    # =========================
-    param_file = os.path.join(dataset_root, "ParameterSettings.txt")
-    if os.path.exists(param_file):
-        print(f"기존 ParameterSettings.txt 파일 로드됨: {param_file}")
-        with open(param_file, "r") as f:
-            best_param = json.load(f)
-        batch_size = best_param["batch_size"]
-        learning_rate = best_param["learning_rate"]
-        optimizer_name = best_param["optimizer"]
-        print(f"사용 파라미터: {best_param}")
-    else:
-        raise FileNotFoundError("ParameterSettings.txt 파일이 존재하지 않습니다. 하이퍼파라미터 튜닝부터 먼저 진행하세요.")
-
-    num_epochs = 5
-    num_classes = 2
-
-    # =========================
-    # 디바이스 설정
-    # =========================
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    print(f"현재 사용 디바이스: {device}")
-
-    # =========================
-    # [2025/10/31 추가] 학습 모드 선택 (터미널 입력)
+    # [2025/11/06 수정] 학습 모드 선택 (일반화 / FullTrain)
     # =========================
     print("\n학습 모드를 선택하세요:")
     print("1: 일반화 성능 측정용 (train/val split)")
@@ -182,13 +164,39 @@ if __name__ == "__main__":
     # 데이터 분할
     # =========================
     if mode == "generalization":
-        train_df, val_df = train_test_split(
-            df, test_size=0.2, stratify=df["Defect"], random_state=42
-        )
+        df["BoardID"] = df["ImageName"].str.extract(r"BOARD(\d+)", expand=False)
+        boards = df["BoardID"].unique()
+        train_b, val_b = train_test_split(boards, test_size=0.2, random_state=42)
+        train_df = df[df["BoardID"].isin(train_b)]
+        val_df = df[df["BoardID"].isin(val_b)]
     else:
         train_df = df.copy()
         val_df = df.sample(frac=0.2, random_state=42)
         print(f"[FullTrain 모드] 학습 데이터: {len(train_df)}개, 검증용 원본 샘플: {len(val_df)}개")
+
+    # =========================
+    # 하이퍼파라미터 로드
+    # =========================
+    param_file = os.path.join(dataset_root, "ParameterSettings.txt")
+    if os.path.exists(param_file):
+        print(f"기존 ParameterSettings.txt 파일 로드됨: {param_file}")
+        with open(param_file, "r") as f:
+            best_param = json.load(f)
+        batch_size = best_param["batch_size"]
+        learning_rate = best_param["learning_rate"]
+        optimizer_name = best_param["optimizer"]
+        print(f"사용 파라미터: {best_param}")
+    else:
+        raise FileNotFoundError("ParameterSettings.txt 파일이 존재하지 않습니다.")
+
+    num_epochs = 5
+    num_classes = 2
+
+    # =========================
+    # 디바이스 설정
+    # =========================
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print(f"현재 사용 디바이스: {device}")
 
     # =========================
     # 로그 디렉토리 생성
@@ -198,34 +206,18 @@ if __name__ == "__main__":
     print(f"로그 디렉토리 생성됨: {global_log_root}")
 
     # =========================
-    # 모델 생성 함수
+    # [2025/11/06 수정] 경량화된 ResNet18(5채널)
     # =========================
-    def create_model(learning_rate, optimizer_name, model_type="efficientnet"):
-        """[2025/11/06 수정] EfficientNet / ViT / ResNet 중 선택"""
-        if model_type == "efficientnet":
-            model = efficientnet_b0(weights=EfficientNet_B0_Weights.DEFAULT)
-            model.features[0][0] = nn.Conv2d(5, 32, kernel_size=3, stride=2, padding=1, bias=False)
-            model.classifier[1] = nn.Linear(model.classifier[1].in_features, num_classes)
-        elif model_type == "vit":
-            model = vit_b_16(weights=ViT_B_16_Weights.DEFAULT)
-            model.conv_proj = nn.Conv2d(5, 768, kernel_size=16, stride=16)
-            model.heads.head = nn.Linear(model.heads.head.in_features, num_classes)
-        else:
-            model = resnet18(weights=ResNet18_Weights.DEFAULT)
-            model.conv1 = nn.Conv2d(5, 64, kernel_size=7, stride=2, padding=3, bias=False)
-            model.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-            model.fc = nn.Linear(model.fc.in_features, num_classes)
-
+    def create_model(learning_rate, optimizer_name):
+        model = resnet18(weights=ResNet18_Weights.DEFAULT)
+        model.conv1 = nn.Conv2d(5, 64, kernel_size=7, stride=2, padding=3, bias=False)
+        model.fc = nn.Linear(model.fc.in_features, num_classes)
         model = model.to(device)
-
         if optimizer_name == "adam":
             optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-        elif optimizer_name == "sgd":
-            optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
         else:
-            raise ValueError("Invalid optimizer")
+            optimizer = optim.SGD(model.parameters(), lr=learning_rate, momentum=0.9)
         return model, optimizer
-
 
     # =========================
     # DataLoader 설정
@@ -233,32 +225,30 @@ if __name__ == "__main__":
     train_loader = DataLoader(
         SolderDataset(train_df, output_folder, train_transform),
         batch_size=batch_size, shuffle=True,
-        num_workers=8,
-        pin_memory=True,
-        prefetch_factor=4,
-        persistent_workers=True,
-        worker_init_fn=seed_worker
+        num_workers=4, persistent_workers=True, pin_memory=True, worker_init_fn=seed_worker
     )
 
     val_loader = DataLoader(
         SolderDataset(val_df, output_folder, val_transform),
         batch_size=batch_size, shuffle=False,
-        num_workers=8,
-        pin_memory=True,
-        prefetch_factor=4,
-        persistent_workers=True,
-        worker_init_fn=seed_worker
+        num_workers=4, persistent_workers=True, pin_memory=True, worker_init_fn=seed_worker
     )
+
+    # =========================
+    # 클래스 불균형 보정
+    # =========================
+    num_normal = (train_df["Defect"] == 0).sum()
+    num_defect = (train_df["Defect"] == 1).sum()
+    class_weights = torch.tensor([1.0, num_normal / num_defect], dtype=torch.float).to(device)
+    print(f"Class weights: {class_weights}")
 
     # =========================
     # 학습 시작
     # =========================
-    print("\n전체 데이터 학습 시작")
-    model, optimizer = create_model(learning_rate, optimizer_name, model_type="efficientnet")  # [2025/11/06 수정] 모델타입 지정
-    criterion = FocalLoss()  # [2025/11/06 수정] Focal Loss 사용
+    model, optimizer = create_model(learning_rate, optimizer_name)
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
 
-    train_losses, val_losses = [], []
-    train_accuracies, val_accuracies, val_aucs = [], [], []
+    train_losses, val_losses, train_accuracies, val_accuracies, val_aucs = [], [], [], [], []
 
     for epoch in range(num_epochs):
         print(f"\nEpoch {epoch+1}/{num_epochs} 시작")
@@ -278,15 +268,12 @@ if __name__ == "__main__":
             _, preds = torch.max(outputs, 1)
             correct += (preds == labels).sum().item()
 
-        train_loss = total_loss / len(train_loader)
-        train_acc = correct / len(train_loader.dataset)
-        train_losses.append(train_loss)
-        train_accuracies.append(train_acc)
+        train_losses.append(total_loss / len(train_loader))
+        train_accuracies.append(correct / len(train_loader.dataset))
 
         # ---------- Validation ----------
         model.eval()
-        val_loss, val_correct = 0, 0
-        all_labels, all_probs = [], []
+        val_loss, val_correct, all_labels, all_probs = 0, 0, [], []
         with torch.no_grad():
             for images, labels in tqdm(val_loader, desc=f"Val {epoch+1}"):
                 images = images.to(device, non_blocking=True)
@@ -296,26 +283,22 @@ if __name__ == "__main__":
                 val_loss += loss.item()
                 _, preds = torch.max(outputs, 1)
                 val_correct += (preds == labels).sum().item()
-
                 probs = torch.softmax(outputs, dim=1)[:, 1].cpu().numpy()
                 all_probs.extend(probs)
                 all_labels.extend(labels.cpu().numpy())
 
-        val_loss /= len(val_loader)
-        val_acc = val_correct / len(val_loader.dataset)
-        val_auc = roc_auc_score(all_labels, all_probs)
-        val_losses.append(val_loss)
-        val_accuracies.append(val_acc)
-        val_aucs.append(val_auc)
+        val_losses.append(val_loss / len(val_loader))
+        val_accuracies.append(val_correct / len(val_loader.dataset))
+        val_aucs.append(roc_auc_score(all_labels, all_probs))
 
-        print(f"Epoch {epoch+1} -> Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f} | "
-              f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}, Val ROC-AUC: {val_auc:.4f}")
+        print(f"Epoch {epoch+1} -> Train Loss: {train_losses[-1]:.4f}, "
+              f"Train Acc: {train_accuracies[-1]:.4f} | "
+              f"Val Loss: {val_losses[-1]:.4f}, Val Acc: {val_accuracies[-1]:.4f}, "
+              f"Val ROC-AUC: {val_aucs[-1]:.4f}")
 
-        # 모델 저장
         epoch_folder = os.path.join(global_log_root, f"epoch_{epoch+1}")
         os.makedirs(epoch_folder, exist_ok=True)
         torch.save(model.state_dict(), os.path.join(epoch_folder, "model.pt"))
-        print(f"모델 저장됨 -> {os.path.join(epoch_folder, 'model.pt')}")
 
     # =========================
     # 결과 그래프 저장
@@ -339,5 +322,3 @@ if __name__ == "__main__":
     plt.savefig(save_path)
     plt.close()
     print(f"성능 그래프 저장됨: {save_path}")
-
-    print(f"\n학습 완료! 최종 모델 저장 위치: {global_log_root}")

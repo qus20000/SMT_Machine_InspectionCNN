@@ -4,6 +4,7 @@ from torch import nn
 from torchvision import transforms
 from PySide6.QtCore import QThread, Signal
 import torch.nn.functional as F
+
 # =========================
 # 정규식 / 유틸리티
 # =========================
@@ -48,9 +49,8 @@ def safe_read_image(path: str, retries: int = 5, delay: float = 0.15):
             time.sleep(delay)
     return None
 
-
 # =========================
-# [2025/11/06 추가] CLAHE + 색상비 기반 전처리
+# [2025/11/06 추가] 학습과 동일 전처리: CLAHE + 색상비 + 패딩 + Tensor
 # =========================
 def preprocess_with_ratio_hsv(image):
     """RGB 이미지 -> HSV CLAHE + 5채널(R,G,B,R/G,B/G)"""
@@ -68,6 +68,19 @@ def preprocess_with_ratio_hsv(image):
     merged = np.clip(merged / 255.0, 0, 1)
     return merged.astype(np.float32)
 
+# [2025/11/06 추가] 비율 유지 + 패딩
+def resize_with_padding_np(img: np.ndarray, target_size: int) -> np.ndarray:
+    h,w = img.shape[:2]
+    scale = target_size / max(h,w)
+    nh,nw = int(h*scale), int(w*scale)
+    resized = cv2.resize(img,(nw,nh),interpolation=cv2.INTER_LINEAR)
+    top = (target_size - nh)//2; bottom = target_size - nh - top
+    left = (target_size - nw)//2; right = target_size - nw - left
+    return cv2.copyMakeBorder(resized, top,bottom,left,right, cv2.BORDER_CONSTANT, value=0)
+
+# [2025/11/06 추가] 5채널 numpy -> Tensor
+def np_to_tensor_5ch(img: np.ndarray) -> torch.Tensor:
+    return torch.from_numpy(img.transpose(2,0,1)).float()
 
 # =========================
 # InferenceWorker
@@ -84,33 +97,28 @@ class InferenceWorker(QThread):
         self.model=None
 
         # [2025/11/06 수정] 5채널 입력을 위한 전처리 (cv2.resize 사용)
-        self.preprocess = transforms.Compose([
-            transforms.Lambda(
-                lambda img: torch.from_numpy(
-                    cv2.resize(img, (cfg["input_size"], cfg["input_size"]), interpolation=cv2.INTER_LINEAR)
-                    .transpose(2, 0, 1)
-                ).float()
-            )
-        ])
-
+        # [2025/11/06 수정] 학습과 동일한 padding 리사이즈/텐서화로 교체
+        self.input_size = cfg["input_size"]
         self._seen={}
 
     def stop(self): self.stop_flag=True
 
     # =========================
     # [2025/11/06 수정] EfficientNet/ViT 기반 모델 로드
+    # [2025/11/06 수정] 기본값 resnet18로 변경, strict 로드 및 키 로깅
     # =========================
     def _load_model(self):
         mp=self.cfg["model_path"]
-        model_type=self.cfg.get("model_type","efficientnet").lower()
+        model_type=self.cfg.get("model_type","resnet18").lower()  # 기본값 resnet18
+        strict_load = self.cfg.get("strict_load", True)
         try:
             if model_type=="efficientnet":
-                from torchvision.models import efficientnet_b0, EfficientNet_B0_Weights
+                from torchvision.models import efficientnet_b0
                 m=efficientnet_b0(weights=None)
                 m.features[0][0]=nn.Conv2d(5,32,kernel_size=3,stride=2,padding=1,bias=False)
                 m.classifier[1]=nn.Linear(m.classifier[1].in_features,2)
             elif model_type=="vit":
-                from torchvision.models import vit_b_16, ViT_B_16_Weights
+                from torchvision.models import vit_b_16
                 m=vit_b_16(weights=None)
                 m.conv_proj=nn.Conv2d(5,768,kernel_size=16,stride=16)
                 m.heads.head=nn.Linear(m.heads.head.in_features,2)
@@ -121,19 +129,34 @@ class InferenceWorker(QThread):
                 m.fc=nn.Linear(m.fc.in_features,2)
 
             state=torch.load(mp,map_location=self.device)
-            m.load_state_dict(state,strict=False)
+            load_msg = m.load_state_dict(state, strict=strict_load)
             m.eval().to(self.device)
             self.model=m
-            self.log_ready.emit(f"[worker] Model loaded ({model_type}): {mp}")
+
+            # [2025/11/06 추가] 로드 결과 로깅
+            try:
+                missing = getattr(load_msg, "missing_keys", [])
+                unexpected = getattr(load_msg, "unexpected_keys", [])
+                self.log_ready.emit(f"[worker] Model loaded ({model_type}, strict={strict_load}): {mp}")
+                self.log_ready.emit(f"[worker] state_dict check -> missing:{len(missing)} unexpected:{len(unexpected)}")
+                if missing: self.log_ready.emit(f"[worker] missing_keys: {missing[:6]}{' ...' if len(missing)>6 else ''}")
+                if unexpected: self.log_ready.emit(f"[worker] unexpected_keys: {unexpected[:6]}{' ...' if len(unexpected)>6 else ''}")
+            except Exception:
+                pass
+
         except Exception as e:
             self.log_ready.emit(f"[worker] Model load failed: {e}")
-
 
     # =========================
     # 추론 스레드 루프
     # =========================
     def run(self):
+        torch.set_grad_enabled(False)
         self._load_model()
+        if self.model is None:
+            self.log_ready.emit("[worker] No model. Stop.")
+            return
+
         imgdir=self.cfg["watch_image_dir"]
         roi_w=self.cfg["roi_w"]; roi_h=self.cfg["roi_h"]
         th=self.cfg["threshold"]
@@ -155,13 +178,16 @@ class InferenceWorker(QThread):
                 des=canonical_designator(fn)
                 self.image_ready.emit(patch,{"designator":des})
 
-                # [2025/11/06 수정] CLAHE + 색상비 기반 5채널 전처리 적용
-                rgb_img=cv2.cvtColor(patch,cv2.COLOR_BGR2RGB)
-                img_5ch=preprocess_with_ratio_hsv(rgb_img)
-                x=self.preprocess(img_5ch).unsqueeze(0).to(self.device)
+                # [2025/11/06 추가] 학습과 동일 전처리
+                rgb=cv2.cvtColor(patch,cv2.COLOR_BGR2RGB)
+                img5=preprocess_with_ratio_hsv(rgb)
+                img5=resize_with_padding_np(img5, self.input_size)
+                x=np_to_tensor_5ch(img5).unsqueeze(0).to(self.device, non_blocking=True)
 
+                # [2025/11/06 추가] 로짓/확률 산출
                 with torch.inference_mode():
-                    prob=torch.softmax(self.model(x),1)[0,1].item()
+                    logits=self.model(x)                  # (1,2)
+                    prob=float(torch.softmax(logits,1)[0,1].item())
 
                 pred=int(prob>=th)
                 self.log_ready.emit(f"[infer] {des} pred={pred} prob={prob:.4f}")
