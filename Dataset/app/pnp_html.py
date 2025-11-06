@@ -1,5 +1,5 @@
 # pnp_html.py
-# - pnp_visualize.py의 로직을 그대로 옮겨와서
+# - 네가 주었던 pnp_visualize.py의 로직을 그대로 옮겨와서
 #   GUI에서 사용할 수 있도록 함수화(build_boardmap_html)만 추가/정리
 # - 초기에는 모든 부품을 중립색(회색)으로 표시
 # - PySide6에서 JS 함수 PNP.setState("R75", 1) 로 실시간 색상 갱신 가능
@@ -86,7 +86,7 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 def to_float(s: pd.Series) -> pd.Series:
     s = s.astype(str).str.replace("\x00","", regex=False)
     s = s.str.replace("\u2212","-", regex=False)  # 유니코드 마이너스
-    s = s.str.replace(",",".", regex=False)       # 소수점 콤마 -> 점
+    s = s.str.replace(",",".", regex=False)       # 소수점 콤마 → 점
     s = s.str.replace(r"[^0-9eE\+\-\.]", "", regex=True)
     return pd.to_numeric(s, errors="coerce")
 
@@ -348,7 +348,7 @@ def build_boardmap_html(*,
     )
 
      # -------------------------------------------------
-    #  배경 보드 이미지 붙이기 (1mm 당 19.85px 기준) (2025/11/06 추가)
+    #  배경 보드 이미지 붙이기 (1mm 당 19.85px 기준)
     # -------------------------------------------------
     bg_b64 = None
     board_mm_w = None
@@ -360,7 +360,7 @@ def build_boardmap_html(*,
             img = Image.open(bg_image_path)
             px_w, px_h = img.size   # (width, height) in pixels
 
-            # EasyEDA Png Export를 통해 추출된 이미지와 mm 간 축적계산값
+            # 네가 알려준 스케일
             px_per_mm = 19.85
             board_mm_w = px_w / px_per_mm
             board_mm_h = px_h / px_per_mm
@@ -388,7 +388,7 @@ def build_boardmap_html(*,
                 sizex=board_mm_w,       # 가로 길이 (mm)
                 sizey=board_mm_h,       # 세로 길이 (mm)
                 sizing="stretch",
-                layer="below",          # 소자 박스보다 뒤에 배경이미지를 배치
+                layer="below",          # 소자 네모보다 뒤에
                 name="pcb_bg"
             )
         )
@@ -428,7 +428,7 @@ def build_boardmap_html(*,
   window.PNP = {{
     indexByDes: {json.dumps(index)},
     stateByDes: {{}},     // des -> "ok" | "ng" | "neutral"
-    bgVisible: true,   //  배경 현재 상태 저장
+    bgVisible: true,   // ← 배경 현재 상태 저장
 
     setState: function(des, pred) {{
       try {{
@@ -494,7 +494,7 @@ def build_boardmap_html(*,
     }}
   }};
 
-  // 여기서 Qt WebChannel 초기화
+  // ★ 여기서 Qt WebChannel 초기화
   //   Python 쪽에서 ui_main.py 안에서
   //     channel.registerObject("qtBoard", self._board_bridge)
   //   해놨으니까 이름은 그대로 "qtBoard"
@@ -544,7 +544,7 @@ def build_boardmap_html(*,
         if (!pt || !pt.customdata) return;
         const des = String(pt.customdata[0] || "").toUpperCase();
 
-        // 여기서 Python 슬롯 호출
+        // ★ 여기서 Python 슬롯 호출
         if (qtBoard && typeof qtBoard.onBoardClick === "function") {{
           qtBoard.onBoardClick(des);
         }}

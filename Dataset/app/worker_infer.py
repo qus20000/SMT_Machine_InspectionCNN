@@ -3,6 +3,7 @@ import numpy as np, cv2, torch
 from torch import nn
 from torchvision import transforms
 from PySide6.QtCore import QThread, Signal
+from PyQt5.QtCore import pyqtSlot  # [팀원 코드 통합]
 import torch.nn.functional as F
 
 # =========================
@@ -50,7 +51,7 @@ def safe_read_image(path: str, retries: int = 5, delay: float = 0.15):
     return None
 
 # =========================
-# [2025/11/06 추가] 학습과 동일 전처리: CLAHE + 색상비 + 패딩 + Tensor
+# [2025/11/07 추가] 학습과 동일 전처리: CLAHE + 색상비 + 패딩 + Tensor
 # =========================
 def preprocess_with_ratio_hsv(image):
     """RGB 이미지 -> HSV CLAHE + 5채널(R,G,B,R/G,B/G)"""
@@ -68,7 +69,7 @@ def preprocess_with_ratio_hsv(image):
     merged = np.clip(merged / 255.0, 0, 1)
     return merged.astype(np.float32)
 
-# [2025/11/06 추가] 비율 유지 + 패딩
+# [2025/11/07 추가] 비율 유지 + 패딩
 def resize_with_padding_np(img: np.ndarray, target_size: int) -> np.ndarray:
     h,w = img.shape[:2]
     scale = target_size / max(h,w)
@@ -78,7 +79,7 @@ def resize_with_padding_np(img: np.ndarray, target_size: int) -> np.ndarray:
     left = (target_size - nw)//2; right = target_size - nw - left
     return cv2.copyMakeBorder(resized, top,bottom,left,right, cv2.BORDER_CONSTANT, value=0)
 
-# [2025/11/06 추가] 5채널 numpy -> Tensor
+# [2025/11/07 추가] 5채널 numpy -> Tensor
 def np_to_tensor_5ch(img: np.ndarray) -> torch.Tensor:
     return torch.from_numpy(img.transpose(2,0,1)).float()
 
@@ -95,21 +96,23 @@ class InferenceWorker(QThread):
         self.cfg=cfg; self.stop_flag=False
         self.device=torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         self.model=None
-
-        # [2025/11/06 수정] 5채널 입력을 위한 전처리 (cv2.resize 사용)
-        # [2025/11/06 수정] 학습과 동일한 padding 리사이즈/텐서화로 교체
         self.input_size = cfg["input_size"]
         self._seen={}
+
+    @pyqtSlot()  # [팀원 코드 통합] GUI에서 호출할 수 있는 clear_seen 슬롯
+    def clear_seen(self):
+        """이미 처리된 파일 목록 초기화 (GUI 버튼 등에서 호출됨)"""
+        self._seen.clear()
+        self.log_ready.emit("[worker] Seen cache cleared.")
 
     def stop(self): self.stop_flag=True
 
     # =========================
-    # [2025/11/06 수정] EfficientNet/ViT 기반 모델 로드
-    # [2025/11/06 수정] 기본값 resnet18로 변경, strict 로드 및 키 로깅
+    # [2025/11/07 수정] 모델 로드
     # =========================
     def _load_model(self):
         mp=self.cfg["model_path"]
-        model_type=self.cfg.get("model_type","resnet18").lower()  # 기본값 resnet18
+        model_type=self.cfg.get("model_type","resnet18").lower()
         strict_load = self.cfg.get("strict_load", True)
         try:
             if model_type=="efficientnet":
@@ -133,7 +136,6 @@ class InferenceWorker(QThread):
             m.eval().to(self.device)
             self.model=m
 
-            # [2025/11/06 추가] 로드 결과 로깅
             try:
                 missing = getattr(load_msg, "missing_keys", [])
                 unexpected = getattr(load_msg, "unexpected_keys", [])
@@ -178,15 +180,14 @@ class InferenceWorker(QThread):
                 des=canonical_designator(fn)
                 self.image_ready.emit(patch,{"designator":des})
 
-                # [2025/11/06 추가] 학습과 동일 전처리
+                # 학습과 동일 전처리
                 rgb=cv2.cvtColor(patch,cv2.COLOR_BGR2RGB)
                 img5=preprocess_with_ratio_hsv(rgb)
                 img5=resize_with_padding_np(img5, self.input_size)
                 x=np_to_tensor_5ch(img5).unsqueeze(0).to(self.device, non_blocking=True)
 
-                # [2025/11/06 추가] 로짓/확률 산출
                 with torch.inference_mode():
-                    logits=self.model(x)                  # (1,2)
+                    logits=self.model(x)
                     prob=float(torch.softmax(logits,1)[0,1].item())
 
                 pred=int(prob>=th)
