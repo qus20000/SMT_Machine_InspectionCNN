@@ -198,7 +198,7 @@ def extract_pkg_from_values(fp_val: str, dev_val: str):
 
 
 # ---------------- drawing ----------------
-def add_rect_icon(fig, x, y, color, pkg_key, edge="white", opacity=0.9):
+def add_rect_icon(fig, x, y, color, pkg_key, opacity=0.9):
     if pkg_key not in PKG_SIZE or pkg_key == "":
         L, W = (1.6, 0.8)
     else:
@@ -207,7 +207,7 @@ def add_rect_icon(fig, x, y, color, pkg_key, edge="white", opacity=0.9):
     fig.add_shape(
         type="rect",
         x0=x-halfL, x1=x+halfL, y0=y-halfW, y1=y+halfW,
-        line=dict(color=edge, width=1),
+        line=dict(width=0),
         fillcolor=color, opacity=opacity, layer="above"
     )
 
@@ -268,26 +268,35 @@ def make_figure(*,
 
     fig.update_xaxes(
         title_text="",
+        showgrid=False, 
+        showticklabels=False,          # 축 눈금 숨김
+        zeroline=False,                # 0선 숨김
+        visible=False,                 # 전체 축 비활성화
         range=[float(np.nanmin(xs)) - 1, float(np.nanmax(xs)) + 1],
-        showgrid=True, gridwidth=1, gridcolor="#444",
-        zeroline=False, linecolor="white", mirror=True,
+        showline=False,
+        mirror=False,            # 양쪽 테두리 안 그리기
     )
     fig.update_yaxes(
         title_text="",
-        range=[float(np.nanmin(ys)) - 1, float(np.nanmax(ys)) + 1],
         autorange="reversed",
-        showgrid=True, gridwidth=1, gridcolor="#444",
-        zeroline=False, linecolor="white", mirror=True,
-        scaleanchor="x", scaleratio=1,
-        tickformat="~g",
+        showgrid=False,
+        showticklabels=False,
+        zeroline=False,
+        visible=False,
+        mirror=False,            # 양쪽 테두리 안 그리기
+        showline=False,
+        scaleanchor="x",
+        scaleratio=1,
+        range=[float(np.nanmin(ys)) - 1, float(np.nanmax(ys)) + 1],
     )
 
     fig.update_layout(
-        title=title,                  # 제목은 그대로 두고 싶으면 유지
+         title=title,
         paper_bgcolor="black",
         plot_bgcolor="black",
         showlegend=False,
-        margin=dict(l=5, r=5, t=20, b=5),
+        margin=dict(l=0, r=0, t=0, b=0),  # 여백을 최소화
+        autosize=True,                     # 그래프가 항상 꽉 차도록
     )
     
     return fig
@@ -301,6 +310,17 @@ def build_boardmap_html(*,
                         color_ng: str,
                         bg_image_path: str = None,
                         color_neutral: str) -> str:
+                    
+    all_des = [f"C{i}" for i in range(1, 121)] + [f"R{i}" for i in range(1, 121)]
+# html 파일과 같은 폴더에 meta json 저장
+    meta_path = os.path.join(os.path.dirname(out_html), "boardmeta.json")
+    try:
+        meta = {"designators": all_des}
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
+        print(f"[pnp_html] saved board meta: {meta_path}")
+    except Exception as e:
+        print(f"[pnp_html] failed to save board meta: {e}")
                         
 
 
@@ -360,7 +380,7 @@ def build_boardmap_html(*,
             img = Image.open(bg_image_path)
             px_w, px_h = img.size   # (width, height) in pixels
 
-            # 네가 알려준 스케일
+            # 축적 스케일
             px_per_mm = 19.85
             board_mm_w = px_w / px_per_mm
             board_mm_h = px_h / px_per_mm

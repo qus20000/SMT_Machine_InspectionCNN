@@ -1,10 +1,11 @@
 import os, cv2, json, shutil 
+import time
 import numpy as np
-from PySide6.QtCore import Qt, QSize, Slot, QUrl, QObject, Signal
+from PySide6.QtCore import Qt, QSize, Slot, QUrl, QObject, Signal, QTimer
 from PySide6.QtGui import QPixmap, QImage, QTextCursor
 from PySide6.QtWidgets import (
     QMainWindow, QVBoxLayout, QLabel, QTextEdit, QSplitter, QFrame,
-    QSizePolicy, QPushButton, QMessageBox, QWidget, QHBoxLayout,QCheckBox, QComboBox
+    QSizePolicy, QPushButton, QMessageBox, QWidget, QHBoxLayout,QCheckBox, QComboBox, QProgressBar
 )
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWebChannel import QWebChannel
@@ -43,7 +44,9 @@ class Card(QFrame):
     def __init__(self, title: str):
         super().__init__()
         self.setObjectName("QCard")
+
         lay = QVBoxLayout(self)
+
         lay.setContentsMargins(8, 8, 8, 8)
         lay.setSpacing(6)
 
@@ -65,7 +68,7 @@ class MainWindow(QMainWindow):
         self.cfg = cfg
         ##self.board_dir = None 이거 지워야할까봐 일단 주석처리해둠
 
-         # 완료된 보드들이 저장될 최상위 폴더 (기본값: ./Dataset/inference_output)
+         # 🔹 완료된 보드들이 저장될 최상위 폴더 (기본값: ./Dataset/inference_output)
         self.outdir_base = os.path.abspath(
               cfg.get("watch_image_dir", "./Dataset/inference_output")
         )
@@ -84,10 +87,18 @@ class MainWindow(QMainWindow):
         self._last_pix = None
         self._last_bgr = None
 
+        # 보드 진행률 관련
+        self._all_des = []            # 전체 디자인레이터 리스트 (C1..R120)
+        self._board_total = 0         # 현재 보드 전체 부품 수
+
         # 디자인별로 찍힌 이미지 임시 저장 (보드 클릭해서 다시 보기용)
         self._shot_cache: dict[str, any] = {}
         self._pred_cache: dict[str, tuple[int, float]] = {}
         self._finished_board_paths: list[str] = []
+
+        self._all_designators: set[str] = set()   # 보드 전체 소자 집합
+        self._seen_designators: set[str] = set()  # 이번 보드에서 이미 판정된 소자
+        self._board_completed = False             # 이번 보드 완료 플래그
 
         # 색상
         self.COLOR_OK_BGR = rgbhex_to_bgr_tuple(self.cfg["color_ok"])
@@ -124,8 +135,23 @@ class MainWindow(QMainWindow):
         self.btn_reset = QPushButton("Reset board")
         self.btn_reset.clicked.connect(self.on_reset_board)
         self.html_card.body.addWidget(self.btn_reset)
+        
+    
+        # 진행률 표시줄
+        progress_row = QHBoxLayout()
+        self.board_progress_label = QLabel("Board progress: 0 / 0")
+        self.board_progress = QProgressBar()
+        self.board_progress.setRange(0, 100)
+        self.board_progress.setValue(0)
+        self.board_progress.setTextVisible(True)
 
-        # 배경 on/off 체크박스
+        progress_row.addWidget(self.board_progress_label)
+        progress_row.addWidget(self.board_progress)
+
+        self.html_card.body.addLayout(progress_row)
+
+        
+        # ✅ 배경 on/off 체크박스
         self.chk_bg = QCheckBox("Show PCB background")
         self.chk_bg.setChecked(True)  # 기본은 켜진 상태
         self.chk_bg.toggled.connect(self.on_toggle_bg_background)
@@ -134,59 +160,97 @@ class MainWindow(QMainWindow):
         self.web = QWebEngineView()
         self.html_card.body.addWidget(self.web)
 
+        # ---- 색상 범례 추가 ----
+        legend_row = QHBoxLayout()
+        legend_row.addStretch(1)
+        def make_color_label(color, text):
+            lbl_color = QLabel()
+            lbl_color.setFixedSize(16, 16)
+            lbl_color.setStyleSheet(f"background-color: {color}; border: 1px solid #999;")
+            lbl_text = QLabel(text)
+            hbox = QHBoxLayout()
+            hbox.setSpacing(4)
+            hbox.addWidget(lbl_color)
+            hbox.addWidget(lbl_text)
+            widget = QWidget()
+            widget.setLayout(hbox)
+            return widget
+
+        legend_row.addWidget(make_color_label("#00FF00", "PASS"))
+        legend_row.addWidget(make_color_label("#FF0000", "NG"))
+        legend_row.addWidget(make_color_label("#808080", "Not inspected"))
+
+        legend_row.addStretch(1)
+        self.html_card.body.addLayout(legend_row)
+
         right_vbox.addWidget(self.html_card)
         top.addWidget(right_wrap)
 
         # 위쪽 비율: Live : Board = 4 : 6 정도
-        top.setStretchFactor(0, 4)
-        top.setStretchFactor(1, 6)
+        top.setStretchFactor(0, 7)
+        top.setStretchFactor(1, 3)
 
-        # -------------------------------------------------
-        # (2) 아래쪽: Logs + Click board map (가로로 나란히)
-        # -------------------------------------------------
-        bottom_wrap = QWidget()
-        bottom_hbox = QHBoxLayout(bottom_wrap)
-        bottom_hbox.setContentsMargins(0, 0, 0, 0)
-        bottom_hbox.setSpacing(6)
-
-        # 2-1. Logs (왼쪽)
+         # 2-1. Logs (왼쪽)
         self.log_card = Card("Logs")
         self.log = QTextEdit()
         self.log.setReadOnly(True)
         self.log_card.body.addWidget(self.log)
-        bottom_hbox.addWidget(self.log_card, 4)   # ← 여기 숫자 키우면 더 넓어짐
-
+        
         # 2-2. Click board map (오른쪽)
         self.click_card = Card("Click Board map")
 
-        # 제목/설명 라벨 (위)
+        # ----- Click Board map 상단 헤더 행 -----
         header_row = QHBoxLayout()
+
+        # Selected 라벨
         self.click_title_label = QLabel("Selected: -")
         self.click_title_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         header_row.addWidget(self.click_title_label)
 
-        header_row.addStretch()
+        header_row.addStretch(1)
 
+        # Board 콤보박스
         header_row.addWidget(QLabel("Board:"))
         self.board_combo = QComboBox()
         self.board_combo.addItem("Current", userData=None)  # 0번: 현재 실시간 보드
         header_row.addWidget(self.board_combo)
 
-        self.click_card.body.addLayout(header_row)
+        # Board result 
+        self.btn_board_result = QPushButton("Board result")
+        self.btn_board_result.clicked.connect(self.on_board_result_clicked)
+        header_row.addWidget(self.btn_board_result)
+
+        # All results 버튼
+        self.btn_all_result = QPushButton("All results")
+        self.btn_all_result.clicked.connect(self.on_all_result_clicked)
+        header_row.addWidget(self.btn_all_result)
 
         # 실제 이미지가 뜨는 영역 (아래)
         self.click_img_label = QLabel("보드에서 부품을 클릭하면 여기 표시됩니다.")
         self.click_img_label.setAlignment(Qt.AlignCenter)
         self.click_img_label.setMinimumHeight(140)
         self.click_img_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
+        # ----- Click Board map 카드 전체 레이아웃 -----
+        click_layout = self.click_card.body  
+        self.click_card.body.addLayout(header_row)
         self.click_card.body.addWidget(self.click_img_label)
 
-        bottom_hbox.addWidget(self.click_card, 6)
+        # -------------------------------------------------
+        # (2) 아래쪽: Logs + Click board map (가로로 나란히)
+        # -------------------------------------------------
+        bottom_split = QSplitter(Qt.Horizontal)
+        bottom_split.addWidget(self.log_card)    # 왼쪽: Logs
+        bottom_split.addWidget(self.click_card)  # 오른쪽: Click Board map
 
-        root.addWidget(bottom_wrap)
+# 초기 비율 (원래 4:6이었으니 비슷하게)
+        bottom_split.setStretchFactor(0, 4)
+        bottom_split.setStretchFactor(1, 6)
 
+        root.addWidget(bottom_split)
+        
         # 위/아래 비율
-        root.setStretchFactor(0, 5)   # 위쪽
+        root.setStretchFactor(0, 3)   # 위쪽
         root.setStretchFactor(1, 2)   # 아래쪽
 
         # QSS 적용
@@ -204,8 +268,24 @@ class MainWindow(QMainWindow):
 
         # 보드맵 HTML 로드
         self._load_boardmap()
+         # 보드맵 카드만 여백 0으로
+        layout = self.html_card.layout()
+        if layout is not None:
+            layout.setContentsMargins(0, 0, 0, 0)
+        self.html_card.body.setContentsMargins(0, 0, 0, 0)
 
+        # boardmeta.json 읽기
+        meta_path = os.path.join(os.path.dirname(self.cfg["html_out"]), "boardmeta.json")
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+            self._all_designators = {str(d).upper() for d in meta.get("designators", [])}
+            self.on_log(f"[ui] board meta loaded ({len(self._all_designators)} components)")
+        except Exception as e:
+            self._all_designators = set()
+            self.on_log(f"[ui] board meta load failed: {e}")
          # 완료된 보드 콤보박스 연결 + 초기 스캔
+
         self.board_combo.currentIndexChanged.connect(self.on_board_selected)
         self.refresh_board_list()
 
@@ -301,7 +381,56 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     self.on_log(f"[ui] 결과 JSON 저장 실패: {meta_path} ({e})")
 
+             # ---- 4) 보드별 요약 정보 boards_summary.json 에 저장 ----
+            try:
+                summary_path = os.path.join(self.outdir_base, "boards_summary.json")
+
+                # 기존 요약 불러오기 (없으면 빈 리스트)
+                boards = []
+                if os.path.exists(summary_path):
+                    with open(summary_path, "r", encoding="utf-8") as f:
+                        boards = json.load(f)
+
+                # OK / NG 개수 집계
+                total = len(self._pred_cache)
+                ok_cnt = sum(1 for _, (p, _) in self._pred_cache.items() if int(p) == 0)
+                ng_cnt = sum(1 for _, (p, _) in self._pred_cache.items() if int(p) == 1)
+
+                boards.append(
+                    {
+                        "name": board_name,
+                        "dir": board_dir,
+                        "total": total,
+                        "ok": ok_cnt,
+                        "ng": ng_cnt,
+                    }
+                )
+
+                with open(summary_path, "w", encoding="utf-8") as f:
+                    json.dump(boards, f, ensure_ascii=False, indent=2)
+
+                self.on_log(
+                    f"[ui] Board 완료: {board_name}  OK={ok_cnt}  NG={ng_cnt}  total={total}"
+                )
+                self.on_log(f"[ui] updated boards summary: {summary_path}")
+            except Exception as e:
+                self.on_log(f"[ui] boards_summary.json 저장 실패: {e}")
+        # ---- 5) 세션용 전체 로그파일에도 한 줄 기록 ----
+            try:
+                log_path = os.path.join(self.outdir_base, "boards_log.txt")
+                with open(log_path, "a", encoding="utf-8") as f:
+                    now = time.strftime("%Y-%m-%d %H:%M:%S")
+                    total = len(self._pred_cache)
+                    ok_cnt = sum(1 for _, (p, _) in self._pred_cache.items() if int(p) == 0)
+                    ng_cnt = sum(1 for _, (p, _) in self._pred_cache.items() if int(p) == 1)
+                    f.write(f"[{now}] {board_name} | OK={ok_cnt} | NG={ng_cnt} | total={total}\n")
+                self.on_log(f"[ui] session log updated: {log_path}")
+            except Exception as e:
+                self.on_log(f"[ui] session log write failed: {e}")
+
+        # ---- 최종 로그 ----
             self.on_log(f"[ui] Board 저장: {board_name} ({moved} images)")
+
         else:
             # ---- 저장 안함: 현재 이미지들만 삭제 ----
             removed = 0
@@ -350,13 +479,58 @@ class MainWindow(QMainWindow):
                 color_ng=self.cfg["color_ng"],
                 color_neutral=self.cfg["color_neutral"],
                 bg_image_path=self.cfg.get("board_bg"),
+                
             )
             self.web.load(QUrl.fromLocalFile(os.path.abspath(path)))
             # 로드가 끝난 뒤에만 JS 를 보낼 수 있도록
             self.web.loadFinished.connect(self._on_web_loaded)
             self.on_log(f"[ui] Board map loaded: {path}")
+            self._load_boardmeta()
         except Exception as e:
             self.on_log(f"[ui] 보드맵 로드 실패: {e}")
+
+    def _load_boardmeta(self):
+    #"""
+    #pnp_html 에서 저장한 boardmeta.json 읽어서
+    #self._all_des / self._board_total 초기화.
+    #"""
+        try:
+            html_out = self.cfg["html_out"]  # 예: ./Dataset/app/boardmap.html
+            meta_path = os.path.join(os.path.dirname(html_out), "boardmeta.json")
+            if not os.path.exists(meta_path):
+                self.on_log(f"[ui] boardmeta.json not found: {meta_path}")
+                self._all_des = []
+                self._board_total = 0
+                self._update_board_progress()
+                return
+
+            with open(meta_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            des_list = data.get("designators", [])
+            self._all_des = [str(d).upper() for d in des_list]
+            self._board_total = len(self._all_des)
+            self._seen_designators.clear()
+            self._board_completed = False
+            self._update_board_progress()
+            self.on_log(f"[ui] board meta loaded: {self._board_total} components")
+        except Exception as e:
+            self.on_log(f"[ui] failed to load board meta: {e}")
+            self._all_des = []
+            self._board_total = 0
+            self._update_board_progress()
+    
+    def _update_board_progress(self):
+        done = len(self._seen_designators)
+        total = self._board_total if self._board_total > 0 else 0
+
+        if total > 0:
+            ratio = int(done * 100 / total)
+        else:
+            ratio = 0
+
+        self.board_progress.setValue(ratio)
+        self.board_progress_label.setText(f"Board progress: {done} / {total}")
 
      # ---------- 완료된 보드 목록 스캔 ----------
     def _scan_finished_boards(self):
@@ -383,7 +557,10 @@ class MainWindow(QMainWindow):
 
         self.board_combo.blockSignals(True)
         self.board_combo.clear()
-
+        
+        self.board_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)  # 내용 길이에 맞게 폭 조절
+        self.board_combo.setMinimumContentsLength(8)                       # 최소 글자 수 기준
+        self.board_combo.setMinimumWidth(120)                             # 혹시 모자를 때를 대비한 최소 폭
         # 0번: 현재 실시간 보드
         self.board_combo.addItem("Current", userData=None)
 
@@ -403,6 +580,10 @@ class MainWindow(QMainWindow):
 
         # 0번: Current → 실시간 모드로 복귀
         if data is None:
+            self._seen_designators.clear()
+            self._board_completed = False
+            self._update_board_progress()
+
             self.board_dir = self.outdir_base
             self.on_log("[ui] switched to CURRENT board view")
 
@@ -437,7 +618,7 @@ class MainWindow(QMainWindow):
             for js in self._pending_js:
                 self.web.page().runJavaScript(js)
             self._pending_js.clear()
-
+        
     def _set_preview_pixmap(self, pix: QPixmap):
         self._last_pix = pix
         scaled = pix.scaled(self.preview_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
@@ -473,6 +654,146 @@ class MainWindow(QMainWindow):
             self.web.page().runJavaScript(reset_js)
         else:
             self._pending_js.append(reset_js)
+
+
+    @Slot()
+    def on_board_result_clicked(self):
+    #"""현재 선택된 보드(CURRENT 또는 Board1 등)의 OK/NG/총 개수 요약을 팝업으로 표시"""
+        idx = self.board_combo.currentIndex()
+        data = self.board_combo.itemData(idx)
+        board_name = self.board_combo.currentText()
+
+    # 1) CURRENT 보드인 경우: self._pred_cache 기준으로 바로 계산
+        if data is None:
+            if not self._pred_cache:
+                QMessageBox.information(
+                    self,
+                    "Board result",
+                    "현재 보드에 저장된 예측 결과가 없습니다.",
+                )
+                return
+
+            total = len(self._pred_cache)
+            ok_cnt = sum(1 for (p, _prob) in self._pred_cache.values() if p == 0)
+            ng_cnt = sum(1 for (p, _prob) in self._pred_cache.values() if p == 1)
+
+            msg = (
+                "현재 보드 결과\n\n"
+                f"OK  : {ok_cnt}\n"
+                f"NG  : {ng_cnt}\n"
+                f"Total: {total}"
+            )
+            QMessageBox.information(self, "Board result", msg)
+            self.on_log(f"[ui] current board result -> OK={ok_cnt}, NG={ng_cnt}, total={total}")
+            return
+
+    # 2) 완료된 보드인 경우: boards_summary.json 우선 참고
+        folder = str(data)
+
+        summary_path = os.path.join(self.outdir_base, "boards_summary.json")
+        stats = None
+
+        if os.path.exists(summary_path):
+            try:
+                with open(summary_path, "r", encoding="utf-8") as f:
+                    all_summary = json.load(f)
+            # boards_summary.json 이 {"Board1": {...}, "Board2": {...}} 형태라고 가정
+                if isinstance(all_summary, dict):
+                    stats = all_summary.get(board_name)
+            except Exception as e:
+                self.on_log(f"[ui] failed to read boards_summary.json: {e}")
+
+    # 3) summary 에서 못 찾으면, 해당 보드 폴더의 result.json 으로부터 즉석 계산
+        if stats is None:
+            result_path = os.path.join(folder, "result.json")
+            if os.path.exists(result_path):
+                try:
+                    with open(result_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)  # {"C9": {"pred": 1, "prob": 0.99}, ...}
+
+                    ok_cnt = sum(
+                        1 for info in data.values()
+                        if int(info.get("pred", 0)) == 0
+                    )
+                    ng_cnt = sum(
+                        1 for info in data.values()
+                        if int(info.get("pred", 0)) == 1
+                    )
+                    total = ok_cnt + ng_cnt
+                    stats = {"ok": ok_cnt, "ng": ng_cnt, "total": total}
+                except Exception as e:
+                    self.on_log(f"[ui] failed to read result.json for board result: {e}")
+
+    # 4) 그래도 없으면 안내
+        if stats is None:
+            QMessageBox.information(
+                self,
+                "Board result",
+                f"{board_name} 에 대한 요약 정보를 찾을 수 없습니다.",
+            )
+            return
+
+    # 5) 팝업으로 표시
+        ok_cnt = int(stats.get("ok", 0))
+        ng_cnt = int(stats.get("ng", 0))
+        total = int(stats.get("total", ok_cnt + ng_cnt))
+        ts = stats.get("timestamp", "")
+
+        msg_lines = [
+            f"{board_name} 결과",
+            "",
+            f"OK   : {ok_cnt}",
+            f"NG   : {ng_cnt}",
+            f"Total: {total}",
+        ]
+        if ts:
+            msg_lines.append("")
+            msg_lines.append(f"Time: {ts}")
+
+        msg = "\n".join(msg_lines)
+        QMessageBox.information(self, "Board result", msg)
+        self.on_log(f"[ui] {board_name} result -> OK={ok_cnt}, NG={ng_cnt}, total={total}")
+
+    @Slot()
+    def on_all_result_clicked(self):
+    #"""
+    #지금까지 저장된 모든 보드(Board1, Board2, ...)에 대한
+    #OK/NG/Total/시간 요약을 한 번에 보여주는 팝업
+    #"""
+        log_path = os.path.join(self.outdir_base, "boards_log.txt")
+
+        if not os.path.exists(log_path):
+            QMessageBox.information(
+                self,
+                "All results",
+                "현재까지 저장된 보드 결과 로그(boards_log.txt)가 없습니다.",
+            )
+            return
+
+        try:
+            with open(log_path, "r", encoding="utf-8") as f:
+                txt = f.read().strip()
+        except Exception as e:
+            self.on_log(f"[ui] failed to read boards_log.txt: {e}")
+            QMessageBox.warning(
+                self,
+                "All results",
+                f"boards_log.txt 읽기 실패:\n{e}",
+            )
+            return
+
+        if not txt:
+            QMessageBox.information(
+                self,
+                "All results",
+                "boards_log.txt 에 기록된 내용이 없습니다.",
+            )
+            return
+        
+        # 그대로 보여주기
+        QMessageBox.information(self, "All results", txt)
+        self.on_log(f"[ui] all board results shown from {log_path}")
+   
     # =========================================================
     #                    Reset board
     # =========================================================
@@ -496,7 +817,7 @@ class MainWindow(QMainWindow):
         if ret == QMessageBox.Cancel:
             return
 
-         # 0) infer worker 히스토리 리셋
+         # 🔹 0) infer worker 히스토리 리셋
         try:
         # self.worker 혹은 self.infer_worker 이름 확인해서 사용
             if hasattr(self, "worker") and hasattr(self.worker, "reset_history"):
@@ -511,21 +832,43 @@ class MainWindow(QMainWindow):
                 # 완료된 보드로 저장
                 self._finalize_current_board(save=True)
             elif ret == QMessageBox.No:
-                # 이번 이미지들만 삭제
-                self._finalize_current_board(save=False)
+                # 이번 촬영 이미지만 삭제 (다시 같은 보드 촬영)
+                if hasattr(self, "_finalize_current_board"):
+                    self._finalize_current_board(save=False)
+
+    # SMT 머신에게 "이번 보드 중단/재시작" 알리는 finished.txt 생성
+                    try:
+                        flag_dir = self.cfg.get("watch_image_dir", "./Dataset/inference_output")
+                        flag_path = os.path.join(flag_dir, "finished.txt")
+                        with open(flag_path, "w", encoding="utf-8") as f:
+                            f.write(time.strftime("%Y-%m-%d %H:%M:%S"))
+                        self.on_log(f"[ui] finished flag created: {flag_path}")
+
+                        # 4초(4000ms) 뒤에 자동 삭제
+                        QTimer.singleShot(4000, lambda p=flag_path: self._remove_finished_flag(p))
+                    except Exception as e:
+                        self.on_log(f"[ui] failed to create finished.txt: {e}")
+
         except Exception as e:
             self.on_log(f"[ui] board finalize error: {e}")
 
-        # 워커의 seen 도 같이 리셋
+        # 🔹 워커의 seen 도 같이 리셋
         if self.worker is not None:
             self.worker.clear_seen()
 
         # 2) 파이썬 쪽 상태 리셋
         self._shot_cache.clear()
-        self._pred_cache.clear()
+        if hasattr(self, "_pred_cache"):
+            self._pred_cache.clear()
         self._last_bgr = None
         self._last_pix = None
 
+        # 보드 완료 관련 상태도 리셋
+        self._seen_designators.clear()
+        self._board_completed = False
+        self._update_board_progress()
+
+        # Preview/Click 영역 초기화
         self.preview_label.setPixmap(QPixmap())
         self.preview_label.setText("이미지 없음")
 
@@ -627,8 +970,39 @@ class MainWindow(QMainWindow):
                 "(boardmap stays neutral)"
             )
     
+    # 보드 진행률 및 완료 상태 갱신
+        self._seen_designators = set(self._pred_cache.keys())
+        self._board_completed = True   # 저장된 보드는 이미 완료된 상태
+        self._update_board_progress()
+        
+    def _remove_finished_flag(self, path: str):
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+                self.on_log(f"[ui] finished flag deleted: {path}")
+            else:
+                self.on_log(f"[ui] finished flag already gone: {path}")
+        except Exception as e:
+            self.on_log(f"[ui] failed to delete finished.txt: {e}")
+
+    def _notify_board_completed(self):
+   # """
+    #현재 보드(실시간 Current)에 대해, 모든 소자에 대한 판정이 끝났을 때 한 번만 호출.
+    #"""
+
+    # 지금까지 저장된 보드 폴더 개수 조사
+        boards = self._scan_board_dirs(self.outdir_base)
+        next_idx = len(boards) + 1
+        board_name = f"Board{next_idx}"
+
+        QMessageBox.information(
+            self,
+            "Board 완료",
+            f"{board_name} 검사 완료.\n\n"
+            f"Reset Board 버튼을 눌러서 보드를 저장하거나 초기화해 주세요."
+        )
   # -------------------------------------------------
-    # PCB 배경 on/off 토글
+    # ✅ PCB 배경 on/off 토글
     # -------------------------------------------------
     @Slot(bool)
     def on_toggle_bg_background(self, checked: bool):
@@ -680,6 +1054,22 @@ class MainWindow(QMainWindow):
     # 0) 현재 보드 상태 캐시에 저장 (나중에 result.json 저장·불러오기용)
         self._pred_cache[des_up] = (int(pred), float(prob))
 
+         # 0-01) 이번 보드에서 처음 본 부품이면 set에 추가
+        if des_up not in self._seen_designators:
+            self._seen_designators.add(des_up)
+            self._update_board_progress()
+            self._check_board_completed()
+         # 0-1) 이번 보드에서 판정된 소자 기록
+        if self.board_combo.currentIndex() == 0:  # 0번은 항상 "Current" 라고 가정
+            if self._all_designators:
+                self._seen_designators.add(des_up)
+
+            # 아직 완료 처리 안 했고, 전체 집합을 모두 포함하면 → 완료
+                if (not self._board_completed
+                        and self._seen_designators.issuperset(self._all_designators)):
+                    self._board_completed = True
+                    self._notify_board_completed()
+
     # 1) 보드맵 색 바꾸는 JS 보내기
         js = f"PNP.setState('{designator}', {int(pred)});"
         if self._web_ready:
@@ -697,6 +1087,32 @@ class MainWindow(QMainWindow):
 
         pix2 = cvimg_to_qpix(annotated)
         self._set_preview_pixmap(pix2)
+
+    def _check_board_completed(self):
+    #"""모든 부품이 한 번씩은 예측되었는지 검사하고, 끝났으면 팝업."""
+        if self._board_completed:
+            return  # 이미 한 번 완료 처리한 보드
+
+        if self._board_total <= 0:
+            return
+
+        if len(self._seen_designators) < self._board_total:
+            return
+
+    # 여기까지 오면 전체 부품 검사 완료
+        self._board_completed = True
+        try:
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Board completed")
+            msg.setText("현재 보드의 모든 부품 검사가 완료되었습니다.")
+            msg.setInformativeText(
+                f"총 부품 수: {self._board_total}\n"
+                f"검사된 부품 수: {len(self._seen_designators)}"
+            )
+            msg.setIcon(QMessageBox.Information)
+            msg.exec()
+        except Exception as e:
+            self.on_log(f"[ui] board complete popup failed: {e}")
         # ================= 공통: PASS/NG 오버레이 그리기 =================
     def _draw_result_overlay(self, bgr, pred: int, prob: float):
         """
