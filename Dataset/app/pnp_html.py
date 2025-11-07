@@ -1,4 +1,4 @@
-# Dataset/app/pnp_html.py
+# pnp_html.py
 # - pnp_visualize.py의 로직을 그대로 옮겨와서
 #   GUI에서 사용할 수 있도록 함수화(build_boardmap_html)만 추가/정리
 # - 초기에는 모든 부품을 중립색(회색)으로 표시
@@ -291,7 +291,7 @@ def make_figure(*,
     )
 
     fig.update_layout(
-         title=title, # 25/11/07 22:15 수정사항 (차트 제목을 제거하여 상단 여백(margin)을 없앱니다.)
+         # title=title, # 25/11/07 22:15 수정사항 (차트 제목을 제거하여 상단 여백(margin)을 없앱니다.)
         paper_bgcolor="black",
         plot_bgcolor="black",
         showlegend=False,
@@ -354,7 +354,27 @@ def build_boardmap_html(*,
     pkg_label = np.array([p[0] for p in pairs], dtype=object)
     pkg_key = np.array([p[1] for p in pairs], dtype=object)
 
- 
+    # 25/11/08 07:16 수정사항 (JS에서 키보드 탐색 및 선택 박스 그리기를 위해 데이터 생성)
+    component_data = {}
+    for d, x_val, y_val, k in zip(des, x_raw, y_raw, pkg_key):
+        d_str = str(d).upper()
+        if not d_str:
+            continue
+        try:
+            # 25/11/08 07:16 수정사항 (Plotly 좌표계(ys = -y)에 맞게 y좌표 저장)
+            component_data[d_str] = {
+                "des": d_str,
+                "x": float(x_val),
+                "y": float(-y_val), # 25/11/08 07:16 수정사항 (y좌표는 -y_raw 값을 사용)
+                "pkg": str(k)
+            }
+        except Exception:
+            pass # 25/11/08 07:16 수정사항 (유효하지 않은 좌표는 무시)
+    
+    # 25/11/08 07:16 수정사항 (PKG_SIZE 딕셔너리도 JS로 전달)
+    pkg_sizes_json = json.dumps(PKG_SIZE)
+    component_data_json = json.dumps(component_data)
+
     # ------------------------------------------------
 
     fig = make_figure(
@@ -457,6 +477,11 @@ def build_boardmap_html(*,
     indexByDes: {json.dumps(index)},
     stateByDes: {{}},     // des -> "ok" | "ng" | "neutral"
     bgVisible: true,   // ← 배경 현재 상태 저장
+    
+    // 25/11/08 07:16 수정사항 (선택 박스 및 키보드 탐색을 위해 데이터 주입)
+    pkgSizes: {pkg_sizes_json},
+    componentData: {component_data_json},
+    currentSelectedDes: null,
 
     setState: function(des, pred) {{
       try {{
@@ -474,7 +499,7 @@ def build_boardmap_html(*,
 
         const patch = {{}};
         patch[`shapes[${{idx}}].fillcolor`] = col;
-        window.Plotly.relayout(div, patch);
+        window.Plotly.relayout(div, patch); // 25/11/07 22:39 수정사항 (PlotG -> Plotly)
       }} catch (err) {{
         console.log("[PNP.setState] error:", err);
       }}
@@ -483,12 +508,27 @@ def build_boardmap_html(*,
     resetAll: function() {{
       try {{
         const div = document.querySelector(PLOT_DIV_SELECTOR);
-        if (!div || !window.Plotly) return;
+        if (!div || !window.Plotly || !div._fullLayout) return;
 
-        const patch = {{}};
+        this.currentSelectedDes = null;
+        let currentShapes = div._fullLayout.shapes || [];
+
+        // 25/11/08 07:22 수정사항 (버그 수정: patch['shapes']와 patch['shapes[N].fillcolor'] 충돌 해결)
+        // 1. selection_box가 아닌 모든 shape(즉, 부품 shape)를 가져옵니다.
+        let newShapes = currentShapes.filter(s => s.name !== 'selection_box');
+
+        // 2. 이 shape 리스트에서 직접 색상을 중립으로 변경합니다.
         for (const [des, idx] of Object.entries(this.indexByDes)) {{
-          patch[`shapes[${{idx}}].fillcolor`] = NEUTRAL;
+            if (newShapes[idx]) {{ // 25/11/08 07:22 수정사항 (안전 확인)
+                newShapes[idx].fillcolor = NEUTRAL;
+            }}
         }}
+
+        // 3. 색상이 리셋되고 selection_box가 제거된 'newShapes' 배열로 'shapes' 전체를 교체합니다.
+        const patch = {{
+            shapes: newShapes
+        }};
+        
         window.Plotly.relayout(div, patch);
 
         // 상태도 초기화
@@ -515,30 +555,141 @@ def build_boardmap_html(*,
     }}
     
         window.Plotly.relayout(div, patch);
-        this.bgVisible = vis;
+        this.bgVisible = on; // 25/11/08 07:16 수정사항 (vis -> on 오타 수정)
       }} catch (err) {{
         console.log("[PNP.setBgVisible] error:", err);
       }}
+    }},
+    
+    // 25/11/08 07:16 수정사항 (선택/키보드 탐색을 위한 중앙 함수)
+    selectComponent: function(des) {{
+      try {{
+        if (!des || !this.componentData[des]) return;
+
+        this.currentSelectedDes = des;
+        const data = this.componentData[des];
+        const size = this.pkgSizes[data.pkg] || [1.6, 0.8]; // 기본값
+        const [L, W] = size;
+        
+        // 25/11/08 07:16 수정사항 (요청대로 2배 크기 박스 생성)
+        const newL = L * 2; 
+        const newW = W * 2;
+        const halfL = newL / 2; 
+        const halfW = newW / 2;
+
+        const newShape = {{
+          type: "rect",
+          name: "selection_box", // 25/11/08 07:16 수정사항 (나중에 찾아서 제거하기 위한 이름)
+          xref: "x", yref: "y",
+          x0: data.x - halfL, x1: data.x + halfL,
+          y0: data.y - halfW, y1: data.y + halfW, // 25/11/08 07:16 수정사항 (data.y는 이미 -y_raw 값임)
+          line: {{ color: "white", width: 2 }},
+          fillcolor: "rgba(255,255,255,0.15)", // 25/11/08 07:16 수정사항 (약간의 반투명 흰색)
+          layer: "above"
+        }};
+
+        const div = document.querySelector(PLOT_DIV_SELECTOR);
+        if (!div || !div._fullLayout) return;
+
+        // 25/11/08 07:16 수정사항 (기존 selection_box를 제거하고 새 것으로 교체)
+        let currentShapes = div._fullLayout.shapes || [];
+        let newShapes = currentShapes.filter(s => s.name !== 'selection_box');
+        newShapes.push(newShape);
+
+        window.Plotly.relayout(div, {{ shapes: newShapes }});
+
+        // 25/11/08 07:16 수정사항 (Python으로 클릭 신호 전송)
+        if (qtBoard && typeof qtBoard.onBoardClick === "function") {{
+          qtBoard.onBoardClick(des);
+        }}
+      }} catch(err) {{
+         console.log("[PNP.selectComponent] error:", err);
+      }}
+    }},
+    
+    // 25/11/08 07:16 수정사항 (키보드 이벤트 리스너 설정 함수)
+    setupKeyEvents: function() {{
+      window.addEventListener('keydown', (e) => {{
+        const allowedKeys = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
+        if (!allowedKeys.includes(e.key)) return;
+        
+        e.preventDefault(); // 25/11/08 07:16 수정사항 (페이지 스크롤 방지)
+
+        let currentDes = this.currentSelectedDes;
+        const allComponents = Object.values(this.componentData);
+        if (allComponents.length === 0) return;
+
+        let current = this.componentData[currentDes];
+
+        if (!current) {{
+          // 25/11/08 07:16 수정사항 (선택된 것이 없으면, y가 가장 작고(상단), x가 가장 작은(좌측) 소자 선택)
+          allComponents.sort((a, b) => {{
+            if (a.y !== b.y) return a.y - b.y; // 25/11/08 07:16 수정사항 (y좌표(min) 우선)
+            return a.x - b.x; // 25/11/08 07:16 수정사항 (x좌표(min) 차선)
+          }});
+          let target = allComponents[0];
+          this.selectComponent(target.des);
+          return;
+        }}
+
+        let candidates = [];
+        let sortLogic;
+
+        if (e.key === "ArrowRight") {{
+          candidates = allComponents.filter(c => c.x > current.x);
+          // 25/11/08 07:16 수정사항 (수평 이동: x거리 1: y거리 5 비율로 가중치 부여)
+          sortLogic = (a, b) => {{
+            let distA = (a.x - current.x)**2 + 5 * (a.y - current.y)**2;
+            let distB = (b.x - current.x)**2 + 5 * (b.y - current.y)**2;
+            return distA - distB;
+          }};
+        }} else if (e.key === "ArrowLeft") {{
+          candidates = allComponents.filter(c => c.x < current.x);
+          sortLogic = (a, b) => {{
+            let distA = (a.x - current.x)**2 + 5 * (a.y - current.y)**2;
+            let distB = (b.x - current.x)**2 + 5 * (b.y - current.y)**2;
+            return distA - distB;
+          }};
+        }} else if (e.key === "ArrowUp") {{
+          candidates = allComponents.filter(c => c.y < current.y); // 25/11/08 07:16 수정사항 (y가 작은 것이 위쪽)
+          // 25/11/08 07:16 수정사항 (수직 이동: x거리 5: y거리 1 비율로 가중치 부여)
+          sortLogic = (a, b) => {{
+            let distA = 5 * (a.x - current.x)**2 + (a.y - current.y)**2;
+            let distB = 5 * (b.x - current.x)**2 + (b.y - current.y)**2;
+            return distA - distB;
+          }};
+        }} else if (e.key === "ArrowDown") {{
+          candidates = allComponents.filter(c => c.y > current.y);
+          sortLogic = (a, b) => {{
+            let distA = 5 * (a.x - current.x)**2 + (a.y - current.y)**2;
+            let distB = 5 * (b.x - current.x)**2 + (b.y - current.y)**2;
+            return distA - distB;
+          }};
+        }}
+
+        if (candidates.length > 0) {{
+          candidates.sort(sortLogic);
+          this.selectComponent(candidates[0].des);
+        }}
+      }});
     }}
   }};
 
   // 여기서 Qt WebChannel 초기화
-  //   Python 쪽에서 ui_main.py 안에서
-  //     channel.registerObject("qtBoard", self._board_bridge)
-  //   해놨으니까 이름은 그대로 "qtBoard"
   new QWebChannel(qt.webChannelTransport, function(channel) {{
     qtBoard = channel.objects.qtBoard;
-    // console.log("Qt board connected:", !!qtBoard);
   }});
 
   // Plotly div가 만들어진 뒤에 hover / click 붙이기
   function setupPlotEvents() {{
     const div = document.querySelector(PLOT_DIV_SELECTOR);
     if (!div || !window.Plotly) {{
-      // 아직 안 만들어졌으면 조금 있다가 다시
       setTimeout(setupPlotEvents, 300);
       return;
     }}
+    
+    // 25/11/08 07:16 수정사항 (키보드 이벤트 리스너 시작)
+    window.PNP.setupKeyEvents();
 
     // 마우스 올렸을 때 툴팁 색상 바꾸기
     div.on('plotly_hover', function(ev) {{
@@ -548,12 +699,11 @@ def build_boardmap_html(*,
         const des = String(pt.customdata[0] || "").toUpperCase();
         const st  = (window.PNP.stateByDes && window.PNP.stateByDes[des]) || "neutral";
 
-        // 기본 파랑
         let bg = "rgba(120,160,255,0.85)";
         if (st === "ok") {{
-          bg = "rgba(120,255,120,0.85)";     // 연두
+          bg = "rgba(120,255,120,0.85)";
         }} else if (st === "ng") {{
-          bg = "rgba(255,120,120,0.85)";     // 연빨
+          bg = "rgba(255,120,120,0.85)";
         }}
 
         window.Plotly.relayout(div, {{
@@ -572,10 +722,13 @@ def build_boardmap_html(*,
         if (!pt || !pt.customdata) return;
         const des = String(pt.customdata[0] || "").toUpperCase();
 
-        // 여기서 Python 슬롯 호출
-        if (qtBoard && typeof qtBoard.onBoardClick === "function") {{
-          qtBoard.onBoardClick(des);
-        }}
+        // 25/11/08 07:16 수정사항 (중앙 선택 함수 호출)
+        window.PNP.selectComponent(des);
+        
+        // 25/11/08 07:16 수정사항 (python으로의 전송은 selectComponent가 담당)
+        // if (qtBoard && typeof qtBoard.onBoardClick === "function") {{
+        //   qtBoard.onBoardClick(des);
+        // }}
       }} catch (err) {{
         console.log("[click] error:", err);
       }}

@@ -122,6 +122,7 @@ class Card(QFrame):
 # =========================================================
 #                       메인 윈도우
 # =========================================================
+# 25/11/08 06:48 수정사항 (이전 06:44의 리팩토링을 취소하고 06:33 버전(lazy loading 포함)으로 롤백)
 class MainWindow(QMainWindow):
     def __init__(self, cfg: dict):
         super().__init__()
@@ -254,6 +255,8 @@ class MainWindow(QMainWindow):
         self.html_card.body.addLayout(button_toggle_row)
 
         self.web = QWebEngineView()
+        # 25/11/08 06:48 수정사항 (QWebEngineView가 부모 스플리터와 함께 세로로 확장되도록 크기 정책을 Expanding으로 설정)
+        self.web.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.html_card.body.addWidget(self.web)
 
         # 25/11/07 22:28 수정사항 (범례(legend_row)가 button_toggle_row로 이동했으므로 이 섹션의 코드를 모두 제거)
@@ -261,9 +264,10 @@ class MainWindow(QMainWindow):
         right_vbox.addWidget(self.html_card)
         top.addWidget(right_wrap)
 
-        # 위쪽 비율: Live : Board = 4 : 6 정도
-        top.setStretchFactor(0, 7)
-        top.setStretchFactor(1, 3)
+        # 25/11/08 06:48 수정사항 (LivePreview가 작게 시작하는 1:1 비율 문제를 해결하기 위해 setSizes 사용)
+        top.setSizes([500, 500]) # 25/11/08 06:48 수정사항 (초기 1:1 비율을 강제)
+        # top.setStretchFactor(0, 1) # 25/11/08 06:48 수정사항 (setSizes 사용 시 setStretchFactor는 불필요)
+        # top.setStretchFactor(1, 1)
 
          # 2-1. Logs (왼쪽)
         self.log_card = Card("Logs")
@@ -327,15 +331,17 @@ class MainWindow(QMainWindow):
         bottom_split.addWidget(self.log_card)    # 왼쪽: Logs
         bottom_split.addWidget(self.click_card)  # 오른쪽: Click Board map
 
-# 초기 비율 (원래 4:6이었으니 비슷하게)
-        bottom_split.setStretchFactor(0, 4)
-        bottom_split.setStretchFactor(1, 6)
+        # 25/11/08 06:48 수정사항 (초기 1:1 비율을 강제하기 위해 setSizes 사용)
+        bottom_split.setSizes([500, 500])
+        # bottom_split.setStretchFactor(0, 1)
+        # bottom_split.setStretchFactor(1, 1)
 
         root.addWidget(bottom_split)
         
-        # 위/아래 비율
-        root.setStretchFactor(0, 3)   # 위쪽
-        root.setStretchFactor(1, 2)   # 아래쪽
+        # 25/11/08 06:48 수정사항 (초기 1:1 비율을 강제하기 위해 setSizes 사용)
+        root.setSizes([500, 500])
+        # root.setStretchFactor(0, 1)   # 위쪽
+        # root.setStretchFactor(1, 1)   # 아래쪽
 
         # QSS 적용
         self._apply_qss()
@@ -1045,23 +1051,28 @@ class MainWindow(QMainWindow):
             if not fname.lower().endswith((".png", ".jpg", ".jpeg")):
                 continue
             fpath = os.path.join(folder, fname)
-
-            try:
-                data = np.fromfile(fpath, np.uint8)
-                img = cv2.imdecode(data, cv2.IMREAD_COLOR)
-            except Exception as e:
-                self.on_log(f"[ui] failed to load {fpath}: {e}")
-                continue
-            if img is None:
-                continue
-
+            
+            # 25/11/08 06:12 수정사항 (Lazy loading: 이미지를 바로 읽지 않고 경로만 저장하여 로딩 속도 개선)
             des = os.path.splitext(fname)[0].upper()  # "C14.png" -> "C14"
-            self._shot_cache[des] = img
+            self._shot_cache[des] = fpath # 25/11/08 06:12 수정사항 (이미지 데이터 대신 경로 문자열 저장)
             count += 1
+            
+            # 25/11/08 06:12 수정사항 (기존의 즉시 로딩 코드는 주석 처리)
+            # try:
+            #     data = np.fromfile(fpath, np.uint8)
+            #     img = cv2.imdecode(data, cv2.IMREAD_COLOR)
+            # except Exception as e:
+            #     self.on_log(f"[ui] failed to load {fpath}: {e}")
+            #     continue
+            # if img is None:
+            #     continue
+            # des = os.path.splitext(fname)[0].upper()  # "C14.png" -> "C14"
+            # self._shot_cache[des] = img
+            # count += 1
 
         self.on_log(
             f"[ui] finished board loaded: {os.path.basename(folder)} "
-            f"({count} components in cache)"
+            f"({count} components available)" # 25/11/08 06:12 수정사항 (로그 메시지 약간 변경)
         )
 
         # 4) result.json 이 있으면 보드맵 색상 복원
@@ -1149,6 +1160,7 @@ class MainWindow(QMainWindow):
         # 디자인레이터 캐시 (클릭해서 다시 보려고)
         des = meta.get("designator")
         if des:
+            # 25/11/08 06:12 수정사항 (실시간 이미지는 경로가 아닌 이미지 데이터(numpy)로 저장)
             self._shot_cache[des.upper()] = img.copy()
 
         if des:
@@ -1307,7 +1319,26 @@ class MainWindow(QMainWindow):
         ase_title = f"Selected: {des}"
 
     # 1) 이 부품에 해당하는 이미지가 캐시에 있는지
-        img = self._shot_cache.get(des)
+        # 25/11/08 06:12 수정사항 (캐시에서 항목 가져오기)
+        cache_entry = self._shot_cache.get(des)
+        img = None
+
+        # 25/11/08 06:12 수정사항 (Lazy Loading 구현: 문자열(경로)이면 지금 로드하고 캐시 업데이트)
+        if isinstance(cache_entry, str):
+            # 경로이므로 로드 시도
+            fpath = cache_entry
+            try:
+                data = np.fromfile(fpath, np.uint8)
+                loaded_img = cv2.imdecode(data, cv2.IMREAD_COLOR)
+                if loaded_img is not None:
+                    img = loaded_img
+                    self._shot_cache[des] = img  # 로드 성공 시 이미지 데이터로 캐시 교체
+            except Exception as e:
+                self.on_log(f"[ui] lazy load failed for {des}: {e}")
+        elif isinstance(cache_entry, np.ndarray): # 25/11/08 06:12 수정사항 (실시간(Current) 보드에서처럼 이미 numpy array일 수 있음)
+            img = cache_entry
+        # else: img는 None으로 유지됨
+
         if img is None:
         # 아직 안 찍힌 부품
             self.click_img_label.setPixmap(QPixmap()) # 25/11/07 23:03 수정사항 (ScaledPixmapLabel.setPixmap(None) 호출)
