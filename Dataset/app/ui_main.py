@@ -39,6 +39,66 @@ class BoardClickBridge(QObject):
         self.clicked.emit(des)
 
 
+# 25/11/07 23:03 수정사항 (QSplitter 드래그 시 이미지 크기 조절을 위한 커스텀 QLabel 클래스 추가)
+class ScaledPixmapLabel(QLabel):
+    """
+    QSplitter 등으로 위젯 크기가 변경될 때, QPixmap을 자동으로
+    비율에 맞게 리사이징하는 QLabel 서브클래스.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._full_pixmap: QPixmap | None = None
+        self.setAlignment(Qt.AlignCenter) # 25/11/07 23:03 수정사항 (생성자에서 기본값 설정)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding) # 25/11/07 23:03 수정사항 (생성자에서 기본값 설정)
+        # 25/11/07 23:14 수정사항 (LivePreview 축소 시 끊김 현상 해결을 위해 최소 크기를 1x1로 설정)
+        # 25/11/07 23:14 수정사항 (이 코드는 QLabel이 QPixmap의 sizeHint를 무시하고 레이아웃을 따라 작아지도록 강제합니다.)
+        self.setMinimumSize(1, 1)
+
+    def setPixmap(self, pix: QPixmap | None):
+        """
+        (재정의) 원본 QPixmap을 저장하고, 리사이징된 버전을 표시합니다.
+        None이나 빈 QPixmap이 들어오면 비웁니다.
+        """
+        if pix is None or pix.isNull():
+            self._full_pixmap = None
+            # 25/11/07 23:03 수정사항 (QLabel.setPixmap 호출을 명확히 하기 위해 super() 사용)
+            super().setPixmap(QPixmap()) # 라벨을 비웁니다.
+        else:
+            self._full_pixmap = pix
+            self._update_scaled_pixmap() # 현재 크기에 맞춰 즉시 업데이트합니다.
+
+    def clear(self):
+        """
+        (재정의) QPixmap과 텍스트를 모두 비웁니다.
+        """
+        self._full_pixmap = None
+        super().clear()
+
+    def _update_scaled_pixmap(self):
+        """
+        내부 함수: 저장된 원본 QPixmap을 현재 위젯 크기에 맞게
+        스케일링하여 `super().setPixmap`으로 표시합니다.
+        """
+        if self._full_pixmap:
+            # 25/11/07 23:03 수정사항 (현재 라벨의 크기(self.size())에 맞춰 픽스맵을 스케일링)
+            scaled_pix = self._full_pixmap.scaled(
+                self.size(), 
+                Qt.KeepAspectRatio, 
+                Qt.SmoothTransformation
+            )
+            super().setPixmap(scaled_pix) # 25/11/07 23:03 수정사항 (재귀 호출을 피하기 위해 super().setPixmap 사용)
+
+    def resizeEvent(self, e):
+        """
+        (재정의) 위젯의 크기가 변경될 때마다(예: 스플리터 조작) 호출됩니다.
+        """
+        # 25/11/07 23:03 수정사항 (부모의 resizeEvent를 먼저 호출)
+        super().resizeEvent(e) 
+        if self._full_pixmap:
+            # 25/11/07 23:03 수정사항 (크기가 변경되었으므로, 저장된 원본 픽스맵을 새 크기에 맞게 리스케일링)
+            self._update_scaled_pixmap()
+
+
 # ------------------ 카드 공통 위젯 ------------------ #
 class Card(QFrame):
     def __init__(self, title: str):
@@ -84,14 +144,14 @@ class MainWindow(QMainWindow):
         # 상태 변수들
         self._web_ready = False
         self._pending_js: list[str] = []
-        self._last_pix = None
+        self._last_pix = None # 25/11/07 23:03 수정사항 (MainWindow.resizeEvent는 제거했지만, _last_pix는 on_pred에서 마지막 이미지를 참조하기 위해 유지)
         self._last_bgr = None
 
         # 보드 진행률 관련
         self._all_des = []            # 전체 디자인레이터 리스트 (C1..R120)
         self._board_total = 0         # 현재 보드 전체 부품 수
 
-        # 디자인별로 찍힌 이미지 임시 저장 (보드 클릭해서 다시 보려고)
+        # 디자인별로 찍힌 이미지 임시 저장 (보드 클릭해서 다시 보기용)
         self._shot_cache: dict[str, any] = {}
         self._pred_cache: dict[str, tuple[int, float]] = {}
         self._finished_board_paths: list[str] = []
@@ -118,9 +178,13 @@ class MainWindow(QMainWindow):
 
         # 1-1. 왼쪽: Live preview
         self.preview_card = Card("Live Preview")
-        self.preview_label = QLabel("이미지 없음")
-        self.preview_label.setAlignment(Qt.AlignCenter)
-        self.preview_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
+        # 25/11/07 23:03 수정사항 (QLabel을 ScaledPixmapLabel로 교체)
+        self.preview_label = ScaledPixmapLabel("이미지 없음")
+        # 25/11/07 23:03 수정사항 (setAlignment와 setSizePolicy는 ScaledPixmapLabel 생성자에서 처리되므로 제거)
+        # self.preview_label.setAlignment(Qt.AlignCenter)
+        # self.preview_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
         self.preview_card.body.addWidget(self.preview_label)
         top.addWidget(self.preview_card)
 
@@ -193,16 +257,7 @@ class MainWindow(QMainWindow):
         self.html_card.body.addWidget(self.web)
 
         # 25/11/07 22:28 수정사항 (범례(legend_row)가 button_toggle_row로 이동했으므로 이 섹션의 코드를 모두 제거)
-        # ---- 색상 범례 추가 ----
-        # legend_row = QHBoxLayout()
-        # legend_row.addStretch(1)
-        # ... (make_color_label 함수 정의는 위로 이동함) ...
-        # legend_row.addWidget(make_color_label("#00FF00", "PASS"))
-        # legend_row.addWidget(make_color_label("#FF0000", "NG"))
-        # legend_row.addWidget(make_color_label("#808080", "Not inspected"))
-        # legend_row.addStretch(1)
-        # self.html_card.body.addLayout(legend_row)
-
+        
         right_vbox.addWidget(self.html_card)
         top.addWidget(right_wrap)
 
@@ -250,10 +305,15 @@ class MainWindow(QMainWindow):
         header_row.addWidget(self.btn_all_result)
 
         # 실제 이미지가 뜨는 영역 (아래)
-        self.click_img_label = QLabel("보드에서 부품을 클릭하면 여기 표시됩니다.")
-        self.click_img_label.setAlignment(Qt.AlignCenter)
-        self.click_img_label.setMinimumHeight(140)
-        self.click_img_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # 25/11/07 23:03 수정사항 (QLabel을 ScaledPixmapLabel로 교체)
+        self.click_img_label = ScaledPixmapLabel("보드에서 부품을 클릭하면 여기 표시됩니다.")
+        # 25/11/07 23:03 수정사항 (setAlignment와 setSizePolicy는 ScaledPixmapLabel 생성자에서 처리되므로 제거)
+        # self.click_img_label.setAlignment(Qt.AlignCenter)
+        
+        # 25/11/07 23:14 수정사항 (setMinimumSize(1, 1)이 생성자에서 호출되므로, 이 고정 높이 설정을 제거해야 함)
+        # self.click_img_label.setMinimumHeight(140) 
+        
+        # self.click_img_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
         # ----- Click Board map 카드 전체 레이아웃 -----
         click_layout = self.click_card.body  
@@ -617,10 +677,10 @@ class MainWindow(QMainWindow):
             self._last_bgr = None
             self._last_pix = None
 
-            self.preview_label.setPixmap(QPixmap())
+            self.preview_label.setPixmap(QPixmap()) # 25/11/07 23:03 수정사항 (ScaledPixmapLabel.setPixmap(None)이 호출됨)
             self.preview_label.setText("이미지 없음")
 
-            self.click_img_label.setPixmap(QPixmap())
+            self.click_img_label.setPixmap(QPixmap()) # 25/11/07 23:03 수정사항 (ScaledPixmapLabel.setPixmap(None)이 호출됨)
             self.click_img_label.setText("보드에서 부품을 클릭하면 여기 표시됩니다.")
             self.click_title_label.setText("Selected: -")
 
@@ -645,13 +705,16 @@ class MainWindow(QMainWindow):
         
     def _set_preview_pixmap(self, pix: QPixmap):
         self._last_pix = pix
-        scaled = pix.scaled(self.preview_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.preview_label.setPixmap(scaled)
+        # 25/11/07 23:03 수정사항 (ScaledPixmapLabel이 자동 리사이징을 하므로 이 줄이 필요 없음)
+        # scaled = pix.scaled(self.preview_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        # 25/11/07 23:03 수정사항 (원본 픽스맵을 ScaledPixmapLabel의 setPixmap으로 전달)
+        self.preview_label.setPixmap(pix)
 
-    def resizeEvent(self, e):
-        if self._last_pix is not None:
-            self._set_preview_pixmap(self._last_pix)
-        return super().resizeEvent(e)
+    # 25/11/07 23:03 수정사항 (ScaledPixmapLabel이 자체 resizeEvent를 가지므로 MainWindow의 resizeEvent는 더 이상 필요 없음)
+    # def resizeEvent(self, e):
+    #     if self._last_pix is not None:
+    #         self._set_preview_pixmap(self._last_pix)
+    #     return super().resizeEvent(e)
     
     def _switch_to_current_board(self):
     #실시간(CURRENT) 보드 모드로 전환 + 상태 전부 리셋#
@@ -865,7 +928,7 @@ class MainWindow(QMainWindow):
                         flag_dir = self.cfg.get("watch_image_dir", "./Dataset/inference_output")
                         flag_path = os.path.join(flag_dir, "finished.txt")
                         with open(flag_path, "w", encoding="utf-8") as f:
-                            f.write(time.strftime("%Y-%m-%d %H:M:%S"))
+                            f.write(time.strftime("%Y-%m-%d %H:%M:%S"))
                         self.on_log(f"[ui] finished flag created: {flag_path}")
 
                         # 4초(4000ms) 뒤에 자동 삭제
@@ -1110,7 +1173,7 @@ class MainWindow(QMainWindow):
             return
 
         pix2 = cvimg_to_qpix(annotated)
-        self._set_preview_pixmap(pix2)
+        self._set_preview_pixmap(pix2) # 25/11/07 23:03 수정사항 (원본 크기 픽스맵을 _set_preview_pixmap으로 전달)
 
     def _check_board_completed(self):
     #"""모든 부품이 한 번씩은 예측되었는지 검사하고, 끝났으면 팝업."""
@@ -1206,7 +1269,7 @@ class MainWindow(QMainWindow):
         if not des:
         # 잘못된 클릭 혹은 공백
             self.click_title_label.setText("Selected: -")
-            self.click_img_label.setPixmap(QPixmap())
+            self.click_img_label.setPixmap(QPixmap()) # 25/11/07 23:03 수정사항 (ScaledPixmapLabel.setPixmap(None) 호출)
             self.click_img_label.setText("보드에서 부품을 클릭하면 여기 표시됩니다.")
             return
 
@@ -1216,7 +1279,7 @@ class MainWindow(QMainWindow):
         img = self._shot_cache.get(des)
         if img is None:
         # 아직 안 찍힌 부품
-            self.click_img_label.setPixmap(QPixmap())
+            self.click_img_label.setPixmap(QPixmap()) # 25/11/07 23:03 수정사항 (ScaledPixmapLabel.setPixmap(None) 호출)
             self.click_img_label.setText(f"{des}: image not captured yet.")
             self.click_title_label.setText(base_title)
             return
@@ -1243,7 +1306,8 @@ class MainWindow(QMainWindow):
 
     # 4) QPixmap 으로 변환해서 라벨에 표시
         pix = cvimg_to_qpix(patch)
-        self.click_img_label.setPixmap(pix)
+        # 25/11/07 23:03 수정사항 (ScaledPixmapLabel의 커스텀 setPixmap 메서드를 호출)
+        self.click_img_label.setPixmap(pix) 
         self.click_img_label.setText("")      # 텍스트는 비우고
         self.click_title_label.setText(title)
 
