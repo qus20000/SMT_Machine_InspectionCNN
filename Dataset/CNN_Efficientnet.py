@@ -70,7 +70,7 @@ def resize_with_padding_np(img: np.ndarray, target_size: int = 224) -> np.ndarra
 # [2025/11/07 추가] Pickle-safe transform helpers
 # =========================
 def cvt_bgr2rgb(img: np.ndarray) -> np.ndarray:
-    """BGR → RGB"""
+    """BGR -> RGB"""
     return cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
 def pil_to_np(pil_img):

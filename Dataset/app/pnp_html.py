@@ -1,5 +1,7 @@
-# pnp_html.py
-# - 네가 주었던 pnp_visualize.py의 로직을 그대로 옮겨와서
+# Dataset/app/pnp_html.py
+
+
+# - pnp_visualize.py의 로직을 그대로 옮겨와서
 #   GUI에서 사용할 수 있도록 함수화(build_boardmap_html)만 추가/정리
 # - 초기에는 모든 부품을 중립색(회색)으로 표시
 # - PySide6에서 JS 함수 PNP.setState("R75", 1) 로 실시간 색상 갱신 가능
@@ -86,7 +88,7 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
 def to_float(s: pd.Series) -> pd.Series:
     s = s.astype(str).str.replace("\x00","", regex=False)
     s = s.str.replace("\u2212","-", regex=False)  # 유니코드 마이너스
-    s = s.str.replace(",",".", regex=False)       # 소수점 콤마 → 점
+    s = s.str.replace(",",".", regex=False)       # 소수점 콤마 -> 점
     s = s.str.replace(r"[^0-9eE\+\-\.]", "", regex=True)
     return pd.to_numeric(s, errors="coerce")
 
@@ -514,7 +516,7 @@ def build_boardmap_html(*,
     }}
   }};
 
-  // ★ 여기서 Qt WebChannel 초기화
+  // 여기서 Qt WebChannel 초기화
   //   Python 쪽에서 ui_main.py 안에서
   //     channel.registerObject("qtBoard", self._board_bridge)
   //   해놨으니까 이름은 그대로 "qtBoard"
@@ -564,7 +566,7 @@ def build_boardmap_html(*,
         if (!pt || !pt.customdata) return;
         const des = String(pt.customdata[0] || "").toUpperCase();
 
-        // ★ 여기서 Python 슬롯 호출
+        // 여기서 Python 슬롯 호출
         if (qtBoard && typeof qtBoard.onBoardClick === "function") {{
           qtBoard.onBoardClick(des);
         }}

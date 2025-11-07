@@ -133,11 +133,16 @@ def get_designators_from_pnp(df: pd.DataFrame) -> np.ndarray:
         return s_col.to_numpy()
 
 # ---------------- package sizes ----------------
+
 PKG_SIZE = {
     "c0603": (1.6, 0.8), "r0603": (1.6, 0.8),
     "c0805": (2.0, 1.25), "r0805": (2.0, 1.25),
     "c1206": (3.2, 1.6),  "r1206": (3.2, 1.6),
+    # 추가(20251105): LED 및 IC 계열 패키지
+    "led0603": (1.6, 0.8), "led0805": (2.0, 1.25), "led1206": (3.2, 1.6),
+    "sop8": (4.9, 3.8), "soic8": (4.9, 3.8),
 }
+
 def norm_pkg(fp: str) -> str:
     if not isinstance(fp, str):
         return ""
@@ -150,22 +155,28 @@ def norm_pkg(fp: str) -> str:
     if "1206" in t: return "c1206"
     return ""
 
-# --- helper: Footprint/Device에서 패키지(C0603/R0805 …) 뽑기 ---
 def extract_pkg_from_values(fp_val: str, dev_val: str):
-    """
-    Footprint 또는 Device 문자열에서 C0603/R0805 같은 패키지명을 추출.
-    반환: (표시용 라벨(대문자), 크기계산용 키(소문자) or "")
-    둘 다 못 찾으면 (원본 Footprint 문자열, norm_pkg(fp) 결과)
-    """
+    """Footprint 또는 Device 문자열에서 C0603/R0805/LED0805/SOP-8 등 패키지명을 추출.
+       반환: (표시용 라벨(대문자), 크기계산용 키(소문자) or "")"""
     def _pick(s):
         if not s:
             return None
-        s = str(s)
-        m = re.search(r'([CR])\s*0?(\d{3,4})', s, flags=re.I)
+        s = str(s).strip()
+
+        # 1) 일반 SMD (R/C/LED0603 등)
+        m = re.search(r'([A-Z]+)\s*0?(\d{3,4})', s, flags=re.I)
         if m:
-            label = f"{m.group(1).upper()}{m.group(2).zfill(4)}"   # C0603
-            key   = f"{m.group(1).lower()}{m.group(2).zfill(4)}"   # c0603
+            label = f"{m.group(1).upper()}{m.group(2).zfill(4)}"   # 예: LED0805
+            key   = f"{m.group(1).lower()}{m.group(2).zfill(4)}"   # 예: led0805
             return (label, key)
+
+        # 2) IC 패키지 (SOP-8, SOIC-8 등) 20251105 추가
+        m = re.search(r'(sop|soic|tssop|qfn|qfp)[\-\s_]?(\d+)', s, flags=re.I)
+        if m:
+            label = f"{m.group(1).upper()}-{m.group(2)}"
+            key   = f"{m.group(1).lower()}{m.group(2)}"            # 예: sop8
+            return (label, key)
+
         return None
 
     got = _pick(fp_val)
@@ -174,8 +185,10 @@ def extract_pkg_from_values(fp_val: str, dev_val: str):
     got = _pick(dev_val)
     if got:
         return got
+
     fp_txt = "" if fp_val is None else str(fp_val)
     return (fp_txt, (norm_pkg(fp_txt) or ""))
+
 
 # ---------------- drawing ----------------
 def add_rect_icon(fig, x, y, color, pkg_key, edge="white", opacity=0.9):
@@ -251,7 +264,7 @@ def make_figure(*,
     # autorange='reversed'로 0이 위에 오도록 뒤집음
     ymax_disp = float(np.nanmax(-y_raw))   
 
-    step = 5.0  # 눈금 간격(원하면 5.0, 2.5 등으로 변경 가능)
+    step = 5.0  # 눈금 간격
     ticks = np.arange(0.0, np.ceil(ymax_disp/step)*step + 0.1, step)
     ticktext = ["0"] + [f"-{int(v)}" if abs(v - int(v)) < 1e-9 else f"-{v:g}" for v in ticks[1:]]
 
@@ -267,7 +280,7 @@ def make_figure(*,
         ticktext=ticktext,
         title_text="Y (mm; top=0, down negative)",
         range=[0.0, ymax_disp],           # 위=0, 아래=양수
-        autorange="reversed",             # 화면상 위가 작은 값이 되도록 뒤집기
+        autorange="reversed",             # 화면상 위가 작은 값이 되도록 뒤집기 EasyEDA 상에서 우측아래로 디자인하면 필요한 옵션
         showgrid=True, gridwidth=1, gridcolor="#444",
         zeroline=False, linecolor="white", mirror=True,
         scaleanchor="x", scaleratio=1,
@@ -310,7 +323,7 @@ def main():
     if len(pnp)==0:
         raise SystemExit("표시할 PnP 데이터가 없습니다.")
 
-    # 좌표(원본) → 툴팁에도 그대로 사용
+    # 좌표(원본) -> 툴팁에도 그대로 사용
     x0 = to_float(pnp["Mid X"]).to_numpy()
     y0 = to_float(pnp["Mid Y"]).to_numpy()
 
@@ -335,7 +348,7 @@ def main():
     pkg_label = np.array([p[0] for p in pairs], dtype=object)   # 표기용 (C0603/R0805…)
     pkg_key   = np.array([p[1] for p in pairs], dtype=object)   # 크기용 (c0603/r0805…)
 
-    # defects → NG mask
+    # defects -> NG mask
     is_ng = np.zeros(len(des), dtype=bool)
     if args.defects and os.path.exists(args.defects):
         defs_raw = read_table(args.defects)

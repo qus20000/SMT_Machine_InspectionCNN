@@ -1,3 +1,5 @@
+# Dataset/app/ui_main.py
+
 import os, cv2, json, shutil 
 import time
 import numpy as np
@@ -30,7 +32,7 @@ def cvimg_to_qpix(img_bgr) -> QPixmap:
     return QPixmap.fromImage(qimg)
 
 
-# ------------------ Web ↔ Qt 브리지 ------------------ #
+# ------------------ Web <-> Qt 브리지 ------------------ #
 class BoardClickBridge(QObject):
     clicked = Signal(str)
 
@@ -68,7 +70,7 @@ class MainWindow(QMainWindow):
         self.cfg = cfg
         ##self.board_dir = None 이거 지워야할까봐 일단 주석처리해둠
 
-         # 🔹 완료된 보드들이 저장될 최상위 폴더 (기본값: ./Dataset/inference_output)
+         # 완료된 보드들이 저장될 최상위 폴더 (기본값: ./Dataset/inference_output)
         self.outdir_base = os.path.abspath(
               cfg.get("watch_image_dir", "./Dataset/inference_output")
         )
@@ -151,7 +153,7 @@ class MainWindow(QMainWindow):
         self.html_card.body.addLayout(progress_row)
 
         
-        # ✅ 배경 on/off 체크박스
+        # 배경 on/off 체크박스
         self.chk_bg = QCheckBox("Show PCB background")
         self.chk_bg.setChecked(True)  # 기본은 켜진 상태
         self.chk_bg.toggled.connect(self.on_toggle_bg_background)
@@ -257,7 +259,7 @@ class MainWindow(QMainWindow):
         self._apply_qss()
 
         # -------------------------------------------------
-        # 웹채널 준비 (JS → Python 클릭 신호 받기)
+        # 웹채널 준비 (JS -> Python 클릭 신호 받기)
         # -------------------------------------------------
         self._board_bridge = BoardClickBridge()
         self._board_bridge.clicked.connect(self.on_board_clicked)
@@ -339,7 +341,7 @@ class MainWindow(QMainWindow):
             next_idx = 1
             for name, _ in boards:
                 if name.lower().startswith("board"):
-                    # "Board12" → 12
+                    # "Board12" -> 12
                     num_part = "".join(ch for ch in name if ch.isdigit())
                     if num_part:
                         try:
@@ -578,7 +580,7 @@ class MainWindow(QMainWindow):
         """우측 Board 콤보박스에서 선택이 바뀌었을 때"""
         data = self.board_combo.itemData(idx)
 
-        # 0번: Current → 실시간 모드로 복귀
+        # 0번: Current -> 실시간 모드로 복귀
         if data is None:
             self._seen_designators.clear()
             self._board_completed = False
@@ -817,7 +819,7 @@ class MainWindow(QMainWindow):
         if ret == QMessageBox.Cancel:
             return
 
-         # 🔹 0) infer worker 히스토리 리셋
+         # 0) infer worker 히스토리 리셋
         try:
         # self.worker 혹은 self.infer_worker 이름 확인해서 사용
             if hasattr(self, "worker") and hasattr(self.worker, "reset_history"):
@@ -852,7 +854,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self.on_log(f"[ui] board finalize error: {e}")
 
-        # 🔹 워커의 seen 도 같이 리셋
+        # 워커의 seen 도 같이 리셋
         if self.worker is not None:
             self.worker.clear_seen()
 
@@ -1002,7 +1004,7 @@ class MainWindow(QMainWindow):
             f"Reset Board 버튼을 눌러서 보드를 저장하거나 초기화해 주세요."
         )
   # -------------------------------------------------
-    # ✅ PCB 배경 on/off 토글
+    # PCB 배경 on/off 토글
     # -------------------------------------------------
     @Slot(bool)
     def on_toggle_bg_background(self, checked: bool):
@@ -1017,7 +1019,7 @@ class MainWindow(QMainWindow):
             self._pending_js.append(js)
 
     # =========================================================
-    #        워커 → 이미지 들어왔을 때
+    #        워커 -> 이미지 들어왔을 때
     # =========================================================
     @Slot(object, dict)
     def on_image_ready(self, img, meta):
@@ -1037,7 +1039,7 @@ class MainWindow(QMainWindow):
             self.preview_label.setToolTip(des)
 
     # =========================================================
-    #        워커 → 로그 들어왔을 때
+    #        워커 -> 로그 들어왔을 때
     # =========================================================
     @Slot(str)
     def on_log(self, text: str):
@@ -1045,7 +1047,7 @@ class MainWindow(QMainWindow):
         self.log.moveCursor(QTextCursor.End)
 
     # =========================================================
-    #        워커 → 예측 결과 들어왔을 때
+    #        워커 -> 예측 결과 들어왔을 때
     # =========================================================
     @Slot(str, int, float)
     def on_pred(self, designator: str, pred: int, prob: float):
@@ -1064,7 +1066,7 @@ class MainWindow(QMainWindow):
             if self._all_designators:
                 self._seen_designators.add(des_up)
 
-            # 아직 완료 처리 안 했고, 전체 집합을 모두 포함하면 → 완료
+            # 아직 완료 처리 안 했고, 전체 집합을 모두 포함하면 -> 완료
                 if (not self._board_completed
                         and self._seen_designators.issuperset(self._all_designators)):
                     self._board_completed = True
@@ -1164,7 +1166,7 @@ class MainWindow(QMainWindow):
             else:
                 self._pending_js.append(js)
     # =========================================================
-    #        보드 클릭(JS → Python)
+    #        보드 클릭(JS -> Python)
     # =========================================================
     @Slot(str)
     def on_board_clicked(self, designator: str):
