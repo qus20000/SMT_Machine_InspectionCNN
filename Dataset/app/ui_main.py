@@ -1,4 +1,4 @@
-import os, cv2, json, shutil 
+import os, cv2, json, shutil, re # 25/11/08 03:04 수정사항 (숫자 정렬을 위해 re 모듈 임포트)
 import time
 import numpy as np
 from PySide6.QtCore import Qt, QSize, Slot, QUrl, QObject, Signal, QTimer
@@ -382,23 +382,41 @@ class MainWindow(QMainWindow):
         self.worker.pred_ready.connect(self.on_pred)
         self.worker.start()
 
+    # 25/11/08 03:04 수정사항 (Board1, Board10, Board2... 문제를 해결하기 위해 숫자 기준 정렬로 변경)
     def _scan_board_dirs(self, base: str):
         """
         상위 폴더(base) 밑에 있는 보드 폴더들(Board1, Board2...)을 스캔해서
-        [(이름, 절대경로), ...] 리스트로 반환
+        [(이름, 절대경로), ...] 리스트로 반환 (숫자 오름차순 정렬)
         """
-        boards: list[tuple[str, str]] = []
+        # 25/11/08 03:04 수정사항 (Board1, Board10, Board2... 문제를 해결하기 위해 숫자 기준 정렬로 변경)
+        board_dir_pattern = re.compile(r"Board(\d+)")
+        
+        boards_with_keys: list[tuple[int, str, str]] = []
 
         if not os.path.isdir(base):
-            return boards
+            return []
 
-        for name in sorted(os.listdir(base)):
+        for name in os.listdir(base):
             path = os.path.join(base, name)
             if not os.path.isdir(path):
                 continue
-            boards.append((name, path))
-
-        return boards
+            
+            match = board_dir_pattern.match(name)
+            if match:
+                try:
+                    # 25/11/08 03:04 수정사항 (숫자 부분을 key로 추출)
+                    key = int(match.group(1))
+                    boards_with_keys.append((key, name, path))
+                except ValueError:
+                    pass # 25/11/08 03:04 수정사항 (숫자 변환 실패 시 무시)
+            
+        # 25/11/08 03:04 수정사항 (숫자(key) 기준으로 오름차순 정렬)
+        boards_with_keys.sort(key=lambda item: item[0])
+        
+        # 25/11/08 03:04 수정사항 (정렬된 BoardN 리스트를 (이름, 경로) 튜플 리스트로 변환하여 반환)
+        sorted_boards = [(name, path) for key, name, path in boards_with_keys]
+        
+        return sorted_boards
 
     def _infer_dir(self) -> str:
         # config.json 에 "infer_dir" 키가 있으면 그걸 쓰고,
@@ -421,16 +439,29 @@ class MainWindow(QMainWindow):
             # ---- 1) 다음 보드 번호 계산 (Board1, Board2, ...) ----
             boards = self._scan_board_dirs(self.outdir_base)
             next_idx = 1
-            for name, _ in boards:
-                if name.lower().startswith("board"):
-                    # "Board12" -> 12
-                    num_part = "".join(ch for ch in name if ch.isdigit())
-                    if num_part:
-                        try:
-                            n = int(num_part)
-                            next_idx = max(next_idx, n + 1)
-                        except ValueError:
-                            pass
+            
+            # 25/11/08 03:04 수정사항 (숫자 정렬된 _scan_board_dirs를 활용하여 다음 인덱스를 효율적으로 계산)
+            if boards: # 25/11/08 03:04 수정사항 (보드 리스트가 비어있지 않다면)
+                last_board_name, _ = boards[-1] # 25/11/08 03:04 수정사항 (가장 마지막 보드 이름을 가져옴)
+                num_part = "".join(ch for ch in last_board_name if ch.isdigit())
+                if num_part:
+                    try:
+                        n = int(num_part)
+                        next_idx = n + 1 # 25/11/08 03:04 수정사항 (마지막 번호 + 1)
+                    except ValueError:
+                        pass # 25/11/08 03:04 수정사항 (혹시 모를 오류 시 next_idx=1 사용)
+            
+            # 25/11/08 03:04 수정사항 (기존 for 루프를 주석 처리)
+            # for name, _ in boards:
+            #     if name.lower().startswith("board"):
+            #         # "Board12" -> 12
+            #         num_part = "".join(ch for ch in name if ch.isdigit())
+            #         if num_part:
+            #             try:
+            #                 n = int(num_part)
+            #                 next_idx = max(next_idx, n + 1)
+            #             except ValueError:
+            #                 pass
 
             board_name = f"Board{next_idx}"
             board_dir = os.path.join(self.outdir_base, board_name)
@@ -649,7 +680,7 @@ class MainWindow(QMainWindow):
         self.board_combo.addItem("Current", userData=None)
 
         # 나머지: 저장된 보드들
-        boards = self._scan_board_dirs(self.outdir_base)
+        boards = self._scan_board_dirs(self.outdir_base) # 25/11/08 03:04 수정사항 (이제 숫자 정렬된 리스트를 반환함)
         for name, path in boards:
             self.board_combo.addItem(name, userData=path)
 
