@@ -1,5 +1,5 @@
 {
-  "pnp_path": "./Dataset/app/PickAndPlace_BusinessCard_2025-11-05.xlsx",
+  "pnp_path": "./Dataset/app/PickAndPlace_PCB2_2025-10-23.xlsx",
   
   "html_out": "./Dataset/app/boardmap.html",
   "model_path": "./Dataset/model.pt",
@@ -13,5 +13,5 @@
   "color_ok": "#09fd01",
   "color_ng": "#ee0101",
   "color_neutral": "#64748B",
-  "board_bg": "./Dataset/app/pcb_bg2.png"
+  "board_bg": "./Dataset/app/pcb_bg.png"
 }

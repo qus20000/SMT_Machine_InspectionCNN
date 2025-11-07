@@ -1,6 +1,4 @@
 # Dataset/app/pnp_html.py
-
-
 # - pnp_visualize.py의 로직을 그대로 옮겨와서
 #   GUI에서 사용할 수 있도록 함수화(build_boardmap_html)만 추가/정리
 # - 초기에는 모든 부품을 중립색(회색)으로 표시
@@ -293,7 +291,7 @@ def make_figure(*,
     )
 
     fig.update_layout(
-         title=title,
+         title=title, # 25/11/07 22:15 수정사항 (차트 제목을 제거하여 상단 여백(margin)을 없앱니다.)
         paper_bgcolor="black",
         plot_bgcolor="black",
         showlegend=False,
@@ -433,7 +431,15 @@ def build_boardmap_html(*,
 
     html = fig.to_html(include_plotlyjs="inline", full_html=True)
 
+    # 25/11/07 22:25 수정사항 (HTML body의 기본 margin과 padding을 0으로 강제하여 흰색 테두리를 완전히 제거합니다.)
     inject = f"""
+<style>
+  body {{ 
+    margin: 0; 
+    padding: 0; 
+    background-color: black; /* Plotly의 paper_bgcolor와 일치시킴 */
+  }}
+</style>
 <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
 <script>
 (function() {{

@@ -3,7 +3,7 @@
   font-family: 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
 }
 
-/* 🔴 이 줄이 qt-material 배경을 덮어버렸던 원인 → 주석 or 삭제
+/* 이 줄이 qt-material 배경을 덮어버렸던 원인 -> 주석ㅊ처리함
 QMainWindow, QWidget { background-color: #121624; }
 */
 
@@ -14,7 +14,7 @@ QToolBar {
   padding: 4px;
 }
 
-/* 카드 스타일은 그대로 (이게 지금 UI 느낌을 만들어주고 있음) */
+/* UI 스타일 */
 QFrame#QCard {
   background-color: #161c2e;
   border-radius: 14px;

@@ -1,5 +1,3 @@
-# Dataset/app/ui_main.py
-
 import os, cv2, json, shutil 
 import time
 import numpy as np
@@ -93,7 +91,7 @@ class MainWindow(QMainWindow):
         self._all_des = []            # 전체 디자인레이터 리스트 (C1..R120)
         self._board_total = 0         # 현재 보드 전체 부품 수
 
-        # 디자인별로 찍힌 이미지 임시 저장 (보드 클릭해서 다시 보기용)
+        # 디자인별로 찍힌 이미지 임시 저장 (보드 클릭해서 다시 보려고)
         self._shot_cache: dict[str, any] = {}
         self._pred_cache: dict[str, tuple[int, float]] = {}
         self._finished_board_paths: list[str] = []
@@ -133,38 +131,8 @@ class MainWindow(QMainWindow):
         right_vbox.setSpacing(6)
 
         self.html_card = Card("Board Map")
-        # reset 버튼은 보드맵 카드 안에 넣음
-        self.btn_reset = QPushButton("Reset board")
-        self.btn_reset.clicked.connect(self.on_reset_board)
-        self.html_card.body.addWidget(self.btn_reset)
         
-    
-        # 진행률 표시줄
-        progress_row = QHBoxLayout()
-        self.board_progress_label = QLabel("Board progress: 0 / 0")
-        self.board_progress = QProgressBar()
-        self.board_progress.setRange(0, 100)
-        self.board_progress.setValue(0)
-        self.board_progress.setTextVisible(True)
-
-        progress_row.addWidget(self.board_progress_label)
-        progress_row.addWidget(self.board_progress)
-
-        self.html_card.body.addLayout(progress_row)
-
-        
-        # 배경 on/off 체크박스
-        self.chk_bg = QCheckBox("Show PCB background")
-        self.chk_bg.setChecked(True)  # 기본은 켜진 상태
-        self.chk_bg.toggled.connect(self.on_toggle_bg_background)
-        self.html_card.body.addWidget(self.chk_bg)
-
-        self.web = QWebEngineView()
-        self.html_card.body.addWidget(self.web)
-
-        # ---- 색상 범례 추가 ----
-        legend_row = QHBoxLayout()
-        legend_row.addStretch(1)
+        # 25/11/07 22:28 수정사항 (범례(legend)를 Reset 버튼과 같은 행에 넣기 위해, make_color_label 헬퍼 함수를 이 위치로 이동)
         def make_color_label(color, text):
             lbl_color = QLabel()
             lbl_color.setFixedSize(16, 16)
@@ -177,13 +145,63 @@ class MainWindow(QMainWindow):
             widget = QWidget()
             widget.setLayout(hbox)
             return widget
+        
+        # 25/11/07 22:28 수정사항 (Reset 버튼, 범례, BG 토글을 같은 행에 넣기 위한 QHBoxLayout 생성 및 재배치)
+        button_toggle_row = QHBoxLayout()
 
-        legend_row.addWidget(make_color_label("#00FF00", "PASS"))
-        legend_row.addWidget(make_color_label("#FF0000", "NG"))
-        legend_row.addWidget(make_color_label("#808080", "Not inspected"))
+        # 1. Reset 버튼 (왼쪽)
+        self.btn_reset = QPushButton("Reset board")
+        self.btn_reset.clicked.connect(self.on_reset_board)
+        button_toggle_row.addWidget(self.btn_reset)
 
-        legend_row.addStretch(1)
-        self.html_card.body.addLayout(legend_row)
+        # 2. 왼쪽 공백 (범례를 중앙으로 밀기)
+        # 25/11/07 22:28 수정사항 (왼쪽 stretch 추가하여 범례를 중앙으로 밀어냄)
+        button_toggle_row.addStretch(1)
+
+        # 3. 범례 (중앙)
+        # 25/11/07 22:28 수정사항 (범례 위젯들을 button_toggle_row에 직접 추가)
+        button_toggle_row.addWidget(make_color_label("#00FF00", "PASS"))
+        button_toggle_row.addWidget(make_color_label("#FF0000", "NG"))
+        button_toggle_row.addWidget(make_color_label("#808080", "Not inspected"))
+
+        # 4. 오른쪽 공백 (토글을 오른쪽으로 밀기)
+        # 25/11/07 22:28 수정사항 (오른쪽 stretch 추가하여 토글 버튼을 맨 우측으로 밀어냄)
+        button_toggle_row.addStretch(1)
+    
+        # 진행률 표시줄 (Logs 영역으로 이동됨)
+        progress_row = QHBoxLayout()
+        self.board_progress_label = QLabel("Board progress: 0 / 0")
+        self.board_progress = QProgressBar()
+        self.board_progress.setRange(0, 100)
+        self.board_progress.setValue(0)
+        self.board_progress.setTextVisible(True)
+
+        progress_row.addWidget(self.board_progress_label)
+        progress_row.addWidget(self.board_progress)
+
+        # 5. 배경 on/off 체크박스 (오른쪽)
+        self.chk_bg = QCheckBox("Show PCB background")
+        self.chk_bg.setChecked(True)  # 기본은 켜진 상태
+        self.chk_bg.toggled.connect(self.on_toggle_bg_background)
+        # 25/11/07 22:28 수정사항 (BG 토글 체크박스를 레이아웃의 맨 오른쪽에 추가)
+        button_toggle_row.addWidget(self.chk_bg)
+
+        # 25/11/07 22:28 수정사항 (버튼/범례/토글 가로 레이아웃을 html_card body에 추가)
+        self.html_card.body.addLayout(button_toggle_row)
+
+        self.web = QWebEngineView()
+        self.html_card.body.addWidget(self.web)
+
+        # 25/11/07 22:28 수정사항 (범례(legend_row)가 button_toggle_row로 이동했으므로 이 섹션의 코드를 모두 제거)
+        # ---- 색상 범례 추가 ----
+        # legend_row = QHBoxLayout()
+        # legend_row.addStretch(1)
+        # ... (make_color_label 함수 정의는 위로 이동함) ...
+        # legend_row.addWidget(make_color_label("#00FF00", "PASS"))
+        # legend_row.addWidget(make_color_label("#FF0000", "NG"))
+        # legend_row.addWidget(make_color_label("#808080", "Not inspected"))
+        # legend_row.addStretch(1)
+        # self.html_card.body.addLayout(legend_row)
 
         right_vbox.addWidget(self.html_card)
         top.addWidget(right_wrap)
@@ -194,6 +212,10 @@ class MainWindow(QMainWindow):
 
          # 2-1. Logs (왼쪽)
         self.log_card = Card("Logs")
+        
+        # 25/11/07 22:05 수정사항 (progress_row 레이아웃을 Logs 카드의 body 최상단으로 이동)
+        self.log_card.body.addLayout(progress_row)
+
         self.log = QTextEdit()
         self.log.setReadOnly(True)
         self.log_card.body.addWidget(self.log)
@@ -843,7 +865,7 @@ class MainWindow(QMainWindow):
                         flag_dir = self.cfg.get("watch_image_dir", "./Dataset/inference_output")
                         flag_path = os.path.join(flag_dir, "finished.txt")
                         with open(flag_path, "w", encoding="utf-8") as f:
-                            f.write(time.strftime("%Y-%m-%d %H:%M:%S"))
+                            f.write(time.strftime("%Y-%m-%d %H:M:%S"))
                         self.on_log(f"[ui] finished flag created: {flag_path}")
 
                         # 4초(4000ms) 뒤에 자동 삭제
